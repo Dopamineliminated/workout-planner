@@ -1012,6 +1012,13 @@ function viewSettings() {
       <div class="actions"><button id="set-save" class="primary">저장</button></div>
     </div>
 
+    <div class="card">
+      <h2>📱 앱으로 설치</h2>
+      <p class="muted small">홈 화면에 추가하면 앱처럼 전체화면·오프라인으로 쓸 수 있어요.</p>
+      <p class="muted small">· <b>Android/Chrome</b>: 주소창 옆 메뉴 → “앱 설치” 또는 “홈 화면에 추가”<br>
+      · <b>iPhone/Safari</b>: 공유 버튼 <b>⬆︎</b> → “홈 화면에 추가”</p>
+    </div>
+
     <div class="card danger-zone">
       <h2>데이터</h2>
       <p class="muted small">모든 데이터는 이 <b>브라우저(localStorage)</b>에 저장됩니다. 다른 기기로 옮기려면 내보내기 후 그 기기에서 가져오기 하세요.</p>
