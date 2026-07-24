@@ -61,7 +61,7 @@ export function lineChart(labels, values, opts = {}) {
   const pts = values.map((v, i) => ({ v, i })).filter((p) => p.v != null && !isNaN(p.v));
   if (pts.length === 0) return '<div class="chart-empty">데이터가 없습니다.</div>';
 
-  const color = opts.color || '#e2703a';
+  const color = opts.color || '#e75fa0';
   const vals = pts.map((p) => p.v);
   let min = Math.min(...vals), max = Math.max(...vals);
   if (min === max) { min -= 1; max += 1; }

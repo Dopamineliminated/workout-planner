@@ -11,7 +11,7 @@ import { sync } from './sync.js';
 
 // 체성분 그래프에 쓸 지표 정의(데이터가 있는 항목만 탭으로 표시)
 const BODY_METRICS = [
-  { key: 'weightKg', label: '체중', unit: 'kg', color: '#e2703a' },
+  { key: 'weightKg', label: '체중', unit: 'kg', color: '#e75fa0' },
   { key: 'skeletalMuscleKg', label: '골격근량', unit: 'kg', color: '#3a86c8' },
   { key: 'bodyFatPct', label: '체지방률', unit: '%', color: '#6b8e23' },
   { key: 'fatMassKg', label: '체지방량', unit: 'kg', color: '#c1666b' },
@@ -56,7 +56,7 @@ async function init() {
 function buildShell() {
   document.body.innerHTML = `
     <header class="topbar">
-      <div class="brand">💪 헬스 루틴 플래너</div>
+      <div class="brand">🐱 고양이 헬스</div>
       <nav id="nav">${NAV.map((n) => `<button data-view="${n.view}">${n.label}</button>`).join('')}</nav>
     </header>
     <main id="app"></main>`;
@@ -483,7 +483,7 @@ function viewDashboard() {
 
   return `
   <section class="dash">
-    <h1>${name}오늘도 화이팅! 🔥</h1>
+    <h1>${name}오늘도 화이팅! 🐾</h1>
     <p class="lead">${goalLabel(g.primaryGoal)} · 주 ${p.daysPerWeek}회 · 볼륨 ${optLabel('volumes', p.experience)}</p>
     ${todayCard}
     ${weekGrid}

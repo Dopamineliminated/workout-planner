@@ -1,4 +1,4 @@
-/* 헬스 루틴 플래너 스타일 — 라이트/다크 자동, 모바일 우선. */
+/* 고양이 헬스 스타일 — 핑크 테마, 라이트/다크 자동, 모바일 우선. */
 :root {
   --bg: #f6f5f1;
   --surface: #ffffff;
@@ -6,8 +6,8 @@
   --text: #23201c;
   --muted: #7c766c;
   --border: #e7e3da;
-  --accent: #e2703a;
-  --accent-weak: #fbe9df;
+  --accent: #e75fa0;
+  --accent-weak: #fbe0ef;
   --up: #2f9e57;
   --down: #d1495b;
   --hold: #b0a99c;
@@ -23,8 +23,8 @@
     --text: #ece7dd;
     --muted: #9b9384;
     --border: #33302a;
-    --accent: #ef8a54;
-    --accent-weak: #3a2a1e;
+    --accent: #f07ab0;
+    --accent-weak: #3a2030;
     --shadow: 0 1px 3px rgba(0,0,0,.3), 0 6px 22px rgba(0,0,0,.35);
   }
 }

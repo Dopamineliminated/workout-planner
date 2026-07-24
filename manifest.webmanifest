@@ -1,8 +1,8 @@
 {
   "id": "/workout-planner/",
-  "name": "헬스 루틴 플래너",
-  "short_name": "헬스루틴",
-  "description": "요일별 맞춤 헬스 루틴 생성 · 세트별 기록 · 다음 주 목표 자동 조정 · 인바디 분석",
+  "name": "고양이 헬스",
+  "short_name": "고양이 헬스",
+  "description": "고양이 헬스 — 요일별 맞춤 루틴 생성 · 세트별 기록 · 다음 주 목표 자동 조정 · 인바디 분석",
   "lang": "ko",
   "dir": "ltr",
   "categories": ["health", "fitness", "lifestyle"],
@@ -12,7 +12,7 @@
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#f6f5f1",
-  "theme_color": "#e2703a",
+  "theme_color": "#e75fa0",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
