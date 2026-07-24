@@ -7,6 +7,7 @@ import { recommendGoal } from './recommend.js';
 import { ageFromBirth } from './core-util.js';
 import { parseInbodyCsv } from './inbody.js';
 import { EXERCISES, getExercise, MUSCLE_LABELS, MUSCLE_ORDER } from './exercises.js';
+import { sync } from './sync.js';
 
 // 체성분 그래프에 쓸 지표 정의(데이터가 있는 항목만 탭으로 표시)
 const BODY_METRICS = [
@@ -42,7 +43,14 @@ async function init() {
   buildShell();
   try { await api.load(); } catch (e) { toast('상태 로드 실패: ' + e.message, 'error'); }
   window.addEventListener('hashchange', render);
+  window.addEventListener('wp-synced', () => render());
   render();
+  // 클라우드 동기화 시작(설정돼 있으면)
+  sync.init((s) => {
+    if (s && s.error) toast('동기화 오류: ' + s.error, 'error');
+    else if (s && s.pulledAt) toast('클라우드에서 동기화됐어요.', 'success');
+    if ((location.hash || '').slice(1) === 'settings') render(); // 로그인 상태 반영
+  });
 }
 
 function buildShell() {
@@ -956,6 +964,89 @@ function wireBody() {
 // ==================================================
 //  설정 뷰
 // ==================================================
+const FIRESTORE_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`;
+
+function parseFirebaseConfig(text) {
+  let t = String(text || '').trim();
+  const m = t.match(/\{[\s\S]*\}/);
+  if (m) t = m[0];
+  try { return JSON.parse(t); } catch {}
+  // 따옴표 없는 키/홑따옴표/후행 콤마 보정 후 재시도
+  const t2 = t.replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":').replace(/'/g, '"').replace(/,\s*}/g, '}');
+  return JSON.parse(t2);
+}
+
+function renderSyncCard() {
+  const hasCfg = sync.hasConfig();
+  const user = sync.user();
+  if (!hasCfg) {
+    return `<div class="card">
+      <h2>☁️ 클라우드 동기화 (Firebase)</h2>
+      <p class="muted small">폰↔PC 자동 동기화를 하려면 본인 Firebase 프로젝트가 필요해요(무료). 아래 순서대로 만든 뒤 firebaseConfig를 붙여넣으세요.</p>
+      <details class="reco"><summary>설정 방법 보기 (처음 한 번만)</summary>
+        <ol class="setup-steps">
+          <li><b>console.firebase.google.com</b> 에서 프로젝트 생성</li>
+          <li>빌드 → <b>Authentication</b> → 시작하기 → <b>Google</b> 로그인 사용 설정</li>
+          <li>빌드 → <b>Firestore Database</b> → 데이터베이스 만들기(프로덕션 모드)</li>
+          <li>Firestore <b>규칙(Rules)</b> 탭에 아래를 붙여넣고 게시:
+            <pre class="rules">${esc(FIRESTORE_RULES)}</pre></li>
+          <li>Authentication → <b>Settings → 승인된 도메인</b>에 <code>dopamineliminated.github.io</code> 추가</li>
+          <li>프로젝트 설정(⚙️) → 내 앱 → <b>웹 앱 추가(&lt;/&gt;)</b> → <code>firebaseConfig</code> 객체 복사</li>
+        </ol>
+      </details>
+      <label class="note-field">firebaseConfig 붙여넣기
+        <textarea id="fb-cfg" placeholder='{ "apiKey": "...", "authDomain": "...", "projectId": "...", "appId": "..." }'></textarea>
+      </label>
+      <div class="actions"><button id="fb-save" class="primary">설정 저장</button></div>
+    </div>`;
+  }
+  if (!user) {
+    return `<div class="card">
+      <h2>☁️ 클라우드 동기화</h2>
+      <p class="muted small">설정 저장됨. 로그인하면 이 기기 데이터가 클라우드와 동기화되고, 다른 기기에서 같은 계정으로 로그인하면 자동으로 이어집니다.</p>
+      <div class="actions">
+        <button id="fb-signin" class="primary">Google로 로그인</button>
+        <button id="fb-forget" class="ghost">설정 지우기</button>
+      </div>
+    </div>`;
+  }
+  return `<div class="card">
+    <h2>☁️ 클라우드 동기화 <span class="badge">연결됨</span></h2>
+    <p class="muted small"><b>${esc(user.email || user.uid)}</b> 로 동기화 중. 변경하면 자동으로 올라가고, 다른 기기 변경도 자동 반영돼요.</p>
+    <div class="actions">
+      <button id="fb-push" class="ghost">지금 올리기</button>
+      <button id="fb-pull" class="ghost">지금 내려받기</button>
+      <button id="fb-signout" class="ghost">로그아웃</button>
+    </div>
+  </div>`;
+}
+
+function wireSyncCard() {
+  const on = (id, ev, fn) => { const el = qs('#' + id); if (el) el.addEventListener(ev, fn); };
+  on('fb-save', 'click', () => {
+    try {
+      const cfg = parseFirebaseConfig(qs('#fb-cfg').value);
+      if (!cfg || !cfg.apiKey || !cfg.projectId) throw new Error('apiKey/projectId가 없어요');
+      sync.saveConfig(cfg); toast('설정을 저장했어요. 이제 로그인하세요.', 'success'); render();
+    } catch (e) { toast('firebaseConfig를 읽지 못했어요: ' + e.message, 'error'); }
+  });
+  on('fb-signin', 'click', async () => {
+    try { toast('구글 로그인 창을 여는 중…'); await sync.signIn(); }
+    catch (e) { toast('로그인 실패: ' + e.message, 'error'); }
+  });
+  on('fb-forget', 'click', () => { if (confirm('Firebase 설정을 지울까요? (클라우드 데이터는 남습니다)')) { sync.clearConfig(); render(); } });
+  on('fb-push', 'click', async () => { try { await sync.pushNow(); toast('클라우드에 올렸어요.', 'success'); } catch (e) { toast(e.message, 'error'); } });
+  on('fb-pull', 'click', async () => { if (!confirm('클라우드 데이터로 이 기기를 덮어쓸까요?')) return; try { await sync.pullNow(); toast('내려받았어요.', 'success'); render(); } catch (e) { toast(e.message, 'error'); } });
+  on('fb-signout', 'click', async () => { await sync.signOut(); toast('로그아웃했어요.'); render(); });
+}
+
 function viewSettings() {
   const s = store.state;
   const p = s.profile, g = s.goals, set = s.settings;
@@ -1012,6 +1103,8 @@ function viewSettings() {
       <div class="actions"><button id="set-save" class="primary">저장</button></div>
     </div>
 
+    ${renderSyncCard()}
+
     <div class="card">
       <h2>📱 앱으로 설치</h2>
       <p class="muted small">홈 화면에 추가하면 앱처럼 전체화면·오프라인으로 쓸 수 있어요.</p>
@@ -1033,6 +1126,7 @@ function viewSettings() {
 
 function wireSettings() {
   qs('#edit-setup').addEventListener('click', () => { location.hash = '#setup'; });
+  wireSyncCard();
 
   async function applyQuick(regen) {
     try {

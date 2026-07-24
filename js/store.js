@@ -68,7 +68,24 @@ function readState() {
     return raw ? normalizeState(JSON.parse(raw)) : emptyState();
   } catch { return emptyState(); }
 }
-function persist() { localStorage.setItem(LS_STATE, JSON.stringify(store.state)); }
+
+// 상태 변경 리스너(동기화 모듈이 구독해 원격으로 push)
+const changeListeners = [];
+export function onStateChange(fn) { changeListeners.push(fn); }
+
+function persist() {
+  store.state.updatedAt = Date.now(); // 최신 우선 병합용 타임스탬프
+  localStorage.setItem(LS_STATE, JSON.stringify(store.state));
+  for (const fn of changeListeners) { try { fn(store.state); } catch {} }
+}
+
+// 원격(클라우드)에서 받은 상태를 적용 — updatedAt 유지, push 유발 안 함
+export function applyRemoteState(obj) {
+  store.state = normalizeState(obj);
+  store.state.settings.hasApiKey = !!getKey();
+  localStorage.setItem(LS_STATE, JSON.stringify(store.state));
+}
+
 function getKey() { return localStorage.getItem(LS_KEY) || ''; }
 function setKey(k) { if (k) localStorage.setItem(LS_KEY, k); else localStorage.removeItem(LS_KEY); }
 
