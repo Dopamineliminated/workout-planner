@@ -17,6 +17,7 @@ function emptyState() {
   return {
     version: 1, profile: null, goals: null, routine: null,
     logs: {}, body: [], history: [], cardio: [],
+    exerciseWeights: {}, // 운동 id → 최근 사용 무게(kg). 루틴 생성 시 목표로 재사용.
     settings: { useAI: false, hasApiKey: false, model: 'claude-opus-4-8', updatedAt: null },
   };
 }
@@ -30,7 +31,17 @@ function normalizeState(s) {
     body: Array.isArray(s.body) ? s.body : [],
     history: Array.isArray(s.history) ? s.history : [],
     cardio: Array.isArray(s.cardio) ? s.cardio : [],
+    exerciseWeights: (s.exerciseWeights && typeof s.exerciseWeights === 'object') ? s.exerciseWeights : {},
   };
+}
+
+// 세트들의 대표 무게(횟수>0 & 무게>0 인 세트의 중앙값)
+function representativeWeight(sets) {
+  const ws = (sets || []).filter((x) => Number(x.reps) > 0 && Number(x.weight) > 0).map((x) => Number(x.weight));
+  if (!ws.length) return null;
+  ws.sort((a, b) => a - b);
+  const m = Math.floor(ws.length / 2);
+  return ws.length % 2 ? ws[m] : (ws[m - 1] + ws[m]) / 2;
 }
 
 function readState() {
@@ -146,7 +157,7 @@ export const api = {
     const weekNumber = ex ? ex.weekNumber : 1;
     const startDate = ex ? ex.startDate : (s.profile.startDate || nextMonday());
     const seed = regenerate ? Math.floor(Math.random() * 997) + weekNumber : weekNumber;
-    s.routine = generateRoutine(s.profile, s.goals, { weekNumber, startDate, seed });
+    s.routine = generateRoutine(s.profile, s.goals, { weekNumber, startDate, seed, weights: s.exerciseWeights });
     persist();
   },
 
@@ -156,6 +167,11 @@ export const api = {
     const { routine, changes, summary } = generateNextWeek(s.routine, s.logs, s.goals || {});
     s.history.push({ weekNumber: s.routine.weekNumber, startDate: s.routine.startDate, summary, archivedAt: new Date().toISOString() });
     s.routine = routine;
+    // 조정된 다음 주 목표 무게를 기억(이후 재생성 시 재사용)
+    for (const wd of Object.keys(routine.days)) {
+      const d = routine.days[wd];
+      if (d.type === 'workout') for (const ex of d.exercises) if (ex.weightKg != null) s.exerciseWeights[ex.id] = ex.weightKg;
+    }
     persist();
     return { changes, summary };
   },
@@ -183,10 +199,14 @@ export const api = {
         sets: (e.sets || []).map((x) => ({
           reps: x.reps === '' || x.reps == null ? null : Number(x.reps),
           weight: x.weight === '' || x.weight == null ? null : Number(x.weight),
-          done: !!x.done,
         })),
       })),
     };
+    // 이번에 사용한 무게를 운동별로 기억 → 다음 루틴 목표로 반영
+    for (const e of (b.exercises || [])) {
+      const w = representativeWeight(e.sets);
+      if (w != null) s.exerciseWeights[e.id] = w;
+    }
     persist();
   },
 

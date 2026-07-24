@@ -128,7 +128,8 @@ export function generateRoutine(profile, goals, opts = {}) {
         repMin: scheme.repMin,
         repMax: scheme.repMax,
         restSec: scheme.restSec,
-        weightKg: null, // 1주차는 사용자가 적정 무게를 찾아 기록
+        // 이전에 기록한 무게가 있으면 목표로 재사용, 없으면 null(적정 무게 탐색)
+        weightKg: (opts.weights && opts.weights[exercise.id] != null) ? opts.weights[exercise.id] : null,
         note: slot.focus ? '집중 부위 추가 볼륨' : '',
         _priority: slot.priority,
       };

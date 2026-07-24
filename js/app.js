@@ -627,26 +627,26 @@ function viewLog() {
   const byId = {};
   if (existing) for (const le of existing.exercises) byId[le.id] = le;
 
+  const memW = store.state.exerciseWeights || {};
   const exBlocks = d.exercises.map((ex, exi) => {
     const prev = byId[ex.id];
+    const targetW = ex.weightKg != null ? ex.weightKg : (memW[ex.id] != null ? memW[ex.id] : null);
     const rows = [];
     for (let si = 0; si < ex.sets; si++) {
       const ps = prev && prev.sets && prev.sets[si] ? prev.sets[si] : null;
-      const wDefault = ps && ps.weight != null ? ps.weight : (ex.weightKg != null ? ex.weightKg : '');
+      const wDefault = ps && ps.weight != null ? ps.weight : (targetW != null ? targetW : '');
       const rVal = ps && ps.reps != null ? ps.reps : '';
-      const checked = ps && ps.done ? 'checked' : '';
       rows.push(`<tr>
         <td class="setno">${si + 1}</td>
-        <td class="target">${ex.repMax}회 ${ex.weightKg != null ? '@' + ex.weightKg + 'kg' : ''}</td>
+        <td class="target">${ex.repMax}회${targetW != null ? ' @' + targetW + 'kg' : ''}</td>
         <td><input class="in-reps" data-ex="${exi}" data-set="${si}" type="number" inputmode="numeric" value="${rVal}" placeholder="${ex.repMax}"></td>
         <td><input class="in-weight" data-ex="${exi}" data-set="${si}" type="number" inputmode="decimal" value="${wDefault}" placeholder="${ex.bodyweight ? '자중' : 'kg'}"></td>
-        <td><input class="in-done" data-ex="${exi}" data-set="${si}" type="checkbox" ${checked}></td>
       </tr>`);
     }
     return `<div class="log-ex" data-exid="${esc(ex.id)}" data-name="${esc(ex.name)}" data-kind="${ex.kind}" data-sets="${ex.sets}" data-repmin="${ex.repMin}" data-repmax="${ex.repMax}">
       <div class="log-ex-head"><b>${esc(ex.name)}</b> <span class="muted small">${ex.sets}세트 × ${ex.repMin}-${ex.repMax}회 · ${esc(ex.muscleLabel || '')}</span></div>
       <table class="log-table">
-        <thead><tr><th>세트</th><th>목표</th><th>반복</th><th>무게(kg)</th><th>완료</th></tr></thead>
+        <thead><tr><th>세트</th><th>목표</th><th>횟수</th><th>무게(kg)</th></tr></thead>
         <tbody>${rows.join('')}</tbody>
       </table>
     </div>`;
@@ -661,7 +661,7 @@ function viewLog() {
     <div class="card">
       <div class="card-eyebrow">${dayLabel(logDay)} · ${date}</div>
       <h2>${esc(d.label)}</h2>
-      <p class="muted small">각 세트의 실제 반복수와 무게를 입력하세요. 빈칸은 미수행으로 기록됩니다.</p>
+      <p class="muted small">각 세트의 실제 <b>횟수</b>와 <b>무게</b>를 입력하세요. 입력한 무게는 저장되어 다음 루틴 목표에 반영돼요. 빈칸은 미수행으로 처리됩니다.</p>
       ${exBlocks}
       <label class="note-field">메모<textarea id="log-note" placeholder="컨디션, 통증, 특이사항 등">${esc(existing ? existing.note : '')}</textarea></label>
       <div class="actions">
@@ -725,7 +725,6 @@ function wireLog() {
     qsa('.log-ex').forEach((block) => {
       const repMax = block.dataset.repmax;
       qsa('.in-reps', block).forEach((inp) => { if (!inp.value) inp.value = repMax; });
-      qsa('.in-done', block).forEach((inp) => { inp.checked = true; });
     });
     toast('목표대로 채웠어요. 실제와 다르면 수정하세요.');
   });
@@ -739,8 +738,7 @@ function wireLog() {
       for (let si = 0; si < nSets; si++) {
         const reps = qs(`.in-reps[data-set="${si}"]`, block);
         const weight = qs(`.in-weight[data-set="${si}"]`, block);
-        const done = qs(`.in-done[data-set="${si}"]`, block);
-        sets.push({ reps: reps.value, weight: weight.value, done: done.checked });
+        sets.push({ reps: reps.value, weight: weight.value });
       }
       return {
         id: block.dataset.exid,
@@ -1019,7 +1017,10 @@ function dayDone(week, wd) {
 }
 
 function weightText(ex) {
-  if (ex.bodyweight) return ex.weightKg ? `자중+${ex.weightKg}kg` : '자중';
-  if (ex.weightKg == null) return '<span class="muted">적정무게 탐색</span>';
-  return `${ex.weightKg}kg`;
+  const mem = (store.state.exerciseWeights || {})[ex.id];
+  const w = ex.weightKg != null ? ex.weightKg : (mem != null ? mem : null);
+  const fromMem = ex.weightKg == null && mem != null;
+  if (ex.bodyweight) return w ? `자중+${w}kg` : '자중';
+  if (w == null) return '<span class="muted">적정무게 탐색</span>';
+  return `${w}kg${fromMem ? ' <span class="muted">(기록)</span>' : ''}`;
 }
