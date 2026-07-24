@@ -9,50 +9,9 @@ import { ageFromBirth } from './core-util.js';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 
-// 응답 JSON 스키마(구조화 출력) — 항상 파싱 가능한 JSON을 보장.
-const EXERCISE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    id: { type: 'string' },
-    name: { type: 'string' },
-    muscle: { type: 'string' },
-    kind: { type: 'string', enum: ['compound', 'isolation'] },
-    sets: { type: 'integer' },
-    repMin: { type: 'integer' },
-    repMax: { type: 'integer' },
-    restSec: { type: 'integer' },
-    weightKg: { anyOf: [{ type: 'number' }, { type: 'null' }] },
-    bodyweight: { type: 'boolean' },
-    note: { type: 'string' },
-  },
-  required: ['id', 'name', 'muscle', 'kind', 'sets', 'repMin', 'repMax', 'restSec', 'weightKg', 'bodyweight', 'note'],
-};
-const DAY_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    type: { type: 'string', enum: ['workout', 'rest'] },
-    label: { type: 'string' },
-    focus: { type: 'array', items: { type: 'string' } },
-    exercises: { type: 'array', items: EXERCISE_SCHEMA },
-  },
-  required: ['type', 'label', 'focus', 'exercises'],
-};
-const RESPONSE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    days: {
-      type: 'object',
-      additionalProperties: false,
-      properties: Object.fromEntries(WEEKDAYS.map((d) => [d, DAY_SCHEMA])),
-      required: [...WEEKDAYS],
-    },
-    notes: { type: 'string' },
-  },
-  required: ['days', 'notes'],
-};
+// 참고: 예전에는 output_config.format(구조화 출력) 스키마를 썼으나,
+// 요일 7개 × 운동 배열 반복으로 문법(grammar) 컴파일 크기 한도를 초과(400)해서
+// "JSON만 반환" 지시 + 견고한 파싱 방식으로 전환함(Opus는 JSON 출력이 안정적).
 
 function catalogText(excluded) {
   const ex = excluded || new Set();
@@ -67,11 +26,23 @@ const SYSTEM_PROMPT = `당신은 근거 기반으로 훈련 프로그램을 설�
 - 점진적 과부하, 근육군 균형, 회복(같은 근육군 연속일 지양), 목표(근비대/근력/감량/지구력/유지)에 맞는 세트·반복·휴식.
 - 주어진 운동 카탈로그의 id만 사용하세요. 카탈로그에 없는 운동은 만들지 마세요.
 - 사용자의 장비 제약과 세션 시간(분)을 지키세요. 운동 수가 시간에 비해 많으면 줄이세요.
-- 집중 근육이 있으면 해당 부위 볼륨을 우선 배분하세요.
 - 7개 요일(mon~sun)을 모두 반환하세요. 훈련하지 않는 날은 type:"rest", exercises:[] 로.
 - weightKg는 사용자가 아직 무게를 기록하지 않았으면 null 로 두세요(1주차).
 - name은 카탈로그의 한글 이름을 그대로 사용하세요.
-- notes에는 이번 다듬기에서 무엇을 왜 바꿨는지 한국어 2~3문장으로 요약하세요.`;
+- notes에는 이번 다듬기에서 무엇을 왜 바꿨는지 한국어 2~3문장으로 요약하세요.
+
+반환 형식 — 아래 구조의 JSON 객체 하나만 출력하세요. 코드펜스(\`\`\`)나 설명 문장을 절대 넣지 말고, 순수 JSON만 반환하세요:
+{
+  "days": {
+    "mon": { "type": "workout" 또는 "rest", "label": "세션 이름", "exercises": [
+      { "id": "카탈로그 id", "name": "한글 이름", "muscle": "부위키(chest/back/shoulders/rear_delt/quads/hamstrings/glutes/calves/biceps/triceps/abs/traps)",
+        "kind": "compound" 또는 "isolation", "sets": 정수, "repMin": 정수, "repMax": 정수, "restSec": 정수,
+        "weightKg": 숫자 또는 null, "bodyweight": true/false, "note": "" }
+    ] },
+    "tue": { ... }, "wed": { ... }, "thu": { ... }, "fri": { ... }, "sat": { ... }, "sun": { ... }
+  },
+  "notes": "요약 2~3문장"
+}`;
 
 function buildUserMessage(profile, goals, routine) {
   const compactDays = {};
@@ -162,6 +133,17 @@ function estMinutes(exs) {
   return Math.round(s / 60);
 }
 
+// 응답 텍스트에서 JSON 객체를 견고하게 추출(코드펜스/설명 문장 허용)
+function extractJson(text) {
+  let t = String(text).trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  const first = t.indexOf('{');
+  const last = t.lastIndexOf('}');
+  if (first >= 0 && last > first) t = t.slice(first, last + 1);
+  try { return JSON.parse(t); } catch { return null; }
+}
+
 export async function refineRoutine({ apiKey, model, profile, goals, routine }) {
   if (!apiKey) throw new Error('API 키가 설정되지 않았습니다.');
 
@@ -171,10 +153,7 @@ export async function refineRoutine({ apiKey, model, profile, goals, routine }) 
     thinking: { type: 'adaptive' },
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: buildUserMessage(profile, goals, routine) }],
-    output_config: {
-      effort: 'high',
-      format: { type: 'json_schema', schema: RESPONSE_SCHEMA },
-    },
+    output_config: { effort: 'high' },
   };
 
   const controller = new AbortController();
@@ -207,12 +186,11 @@ export async function refineRoutine({ apiKey, model, profile, goals, routine }) 
   const data = await res.json();
   if (data.stop_reason === 'refusal') throw new Error('모델이 요청을 거부했습니다.');
 
-  const textBlock = (data.content || []).find((b) => b.type === 'text');
-  if (!textBlock || !textBlock.text) throw new Error('모델 응답에서 JSON을 찾지 못했습니다.');
+  // 텍스트 블록들을 모아 JSON을 견고하게 추출(코드펜스/설명 문장 제거)
+  const rawText = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
+  if (!rawText.trim()) throw new Error('모델 응답에서 JSON을 찾지 못했습니다.');
 
-  let parsed;
-  try { parsed = JSON.parse(textBlock.text); }
-  catch { throw new Error('모델 응답 JSON 파싱 실패.'); }
+  const parsed = extractJson(rawText);
   if (!parsed || !parsed.days) throw new Error('모델 응답 형식이 올바르지 않습니다.');
 
   const days = normalize(parsed.days, routine);
