@@ -6,6 +6,7 @@ import {
 import { recommendGoal } from './recommend.js';
 import { ageFromBirth } from './core-util.js';
 import { parseInbodyCsv } from './inbody.js';
+import { EXERCISES, getExercise, MUSCLE_LABELS, MUSCLE_ORDER } from './exercises.js';
 
 // 체성분 그래프에 쓸 지표 정의(데이터가 있는 항목만 탭으로 표시)
 const BODY_METRICS = [
@@ -55,6 +56,34 @@ function buildShell() {
     const b = e.target.closest('button[data-view]');
     if (b) location.hash = '#' + b.dataset.view;
   });
+  // 운동 이름 클릭 → 설명 모달 (전역 위임)
+  document.body.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-exinfo]');
+    if (el) { e.preventDefault(); openExerciseModal(el.dataset.exinfo); }
+  });
+}
+
+function openExerciseModal(id) {
+  const ex = getExercise(id);
+  if (!ex) return;
+  const kindLabel = ex.kind === 'compound' ? '다관절(복합)' : '단관절(고립)';
+  const equipMap = { barbell: '바벨', dumbbell: '덤벨', machine: '머신', cable: '케이블', bodyweight: '맨몸' };
+  const equip = (ex.equipment || []).map((q) => equipMap[q] || q).join('·');
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal-backdrop" id="ex-modal">
+      <div class="modal">
+        <button class="modal-close" id="ex-modal-close" aria-label="닫기">✕</button>
+        <div class="card-eyebrow">${esc(MUSCLE_LABELS[ex.muscle] || ex.muscle)} · ${kindLabel}</div>
+        <h2>${esc(ex.name)}</h2>
+        <p>${esc(ex.desc || '설명이 준비 중이에요.')}</p>
+        <p class="muted small">장비: ${esc(equip || '-')}${ex.bodyweight ? ' · 자중' : ''}</p>
+      </div>
+    </div>`);
+  const modal = qs('#ex-modal');
+  const close = () => { if (modal) modal.remove(); };
+  qs('#ex-modal-close').addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } });
 }
 
 function setupComplete() {
@@ -175,11 +204,39 @@ function viewSetup(mode) {
       </details>
     </div>
 
+    ${renderAvailableExercises(p)}
+
     <div class="actions">
       <button id="setup-save" class="primary">${mode === 'onboard' ? '분석하고 루틴 만들기 →' : '저장'}</button>
       ${mode === 'edit' ? '<button id="setup-cancel" class="ghost">취소</button>' : ''}
     </div>
   </section>`;
+}
+
+function renderAvailableExercises(p) {
+  const excluded = new Set(p.excludedExercises || []);
+  const groups = MUSCLE_ORDER.map((m) => {
+    const list = EXERCISES.filter((e) => e.muscle === m);
+    if (!list.length) return '';
+    const items = list.map((e) => `
+      <label class="avail-item">
+        <input type="checkbox" class="avail-cb" value="${esc(e.id)}" ${excluded.has(e.id) ? '' : 'checked'}>
+        <span class="avail-text"><b>${esc(e.name)}</b><span class="avail-desc">${esc(e.desc || '')}</span></span>
+      </label>`).join('');
+    return `<div class="avail-group"><div class="avail-muscle">${esc(MUSCLE_LABELS[m] || m)}</div>${items}</div>`;
+  }).join('');
+  return `<div class="card">
+    <h2>3. 헬스장 가능 운동 <span class="muted small">(선택)</span></h2>
+    <details class="reco avail">
+      <summary>없는 기구·운동 빼기 / 운동 설명 보기</summary>
+      <p class="muted small">기본은 전부 가능이에요. 우리 헬스장에 없는 기구나 안 할 운동만 체크를 해제하면 루틴에서 제외됩니다.</p>
+      <div class="avail-actions">
+        <button type="button" id="avail-all" class="ghost sm">전체 선택</button>
+        <button type="button" id="avail-none" class="ghost sm">전체 해제</button>
+      </div>
+      ${groups}
+    </details>
+  </div>`;
 }
 
 function recoRowHtml() {
@@ -256,6 +313,11 @@ function wireSetup(mode) {
     });
   }
 
+  // 가능 운동 전체 선택/해제
+  const availAll = qs('#avail-all'), availNone = qs('#avail-none');
+  if (availAll) availAll.addEventListener('click', () => qsa('.avail-cb').forEach((c) => { c.checked = true; }));
+  if (availNone) availNone.addEventListener('click', () => qsa('.avail-cb').forEach((c) => { c.checked = false; }));
+
   qs('#setup-save').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     const profile = {
@@ -268,6 +330,7 @@ function wireSetup(mode) {
       daysPerWeek: Number(qs('#f-days').value),
       sessionMinutes: qs('#f-minutes').value,
       equipment: qsa('#f-equip input:checked').map((c) => c.value),
+      excludedExercises: qsa('.avail-cb:not(:checked)').map((c) => c.value),
       startDate: qs('#f-start').value,
     };
     const goals = {
@@ -508,7 +571,7 @@ function renderDayCard(r, wd) {
   const done = dayDone(r.weekNumber, wd);
   const rows = d.exercises.map((ex) => `
     <tr>
-      <td class="ex-name">${esc(ex.name)}<span class="ex-muscle">${esc(ex.muscleLabel || '')}</span></td>
+      <td class="ex-name"><span class="ex-info" data-exinfo="${esc(ex.id)}">${esc(ex.name)} <span class="ii">ⓘ</span></span><span class="ex-muscle">${esc(ex.muscleLabel || '')}</span></td>
       <td class="num">${ex.sets} × ${ex.repMin}-${ex.repMax}</td>
       <td class="num muted">${ex.restSec}s</td>
       <td class="num">${weightText(ex)}</td>
@@ -656,7 +719,7 @@ function viewLog() {
       </tr>`);
     }
     return `<div class="log-ex" data-exid="${esc(ex.id)}" data-name="${esc(ex.name)}" data-kind="${ex.kind}" data-sets="${ex.sets}" data-repmin="${ex.repMin}" data-repmax="${ex.repMax}">
-      <div class="log-ex-head"><b>${esc(ex.name)}</b> <span class="muted small">${ex.sets}세트 × ${ex.repMin}-${ex.repMax}회 · ${esc(ex.muscleLabel || '')}</span></div>
+      <div class="log-ex-head"><b class="ex-info" data-exinfo="${esc(ex.id)}">${esc(ex.name)} <span class="ii">ⓘ</span></b> <span class="muted small">${ex.sets}세트 × ${ex.repMin}-${ex.repMax}회 · ${esc(ex.muscleLabel || '')}</span></div>
       <table class="log-table">
         <thead><tr><th>세트</th><th>목표</th><th>횟수</th><th>무게(kg)</th></tr></thead>
         <tbody>${rows.join('')}</tbody>

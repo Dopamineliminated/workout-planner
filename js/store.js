@@ -151,6 +151,7 @@ export const api = {
       daysPerWeek: clamp(num(b.daysPerWeek) || 3, 2, 6),
       sessionMinutes: clamp(num(b.sessionMinutes) || 60, 20, 180),
       equipment: normalizeEquipment(b.equipment),
+      excludedExercises: Array.isArray(b.excludedExercises) ? b.excludedExercises : ((prev && prev.excludedExercises) || []),
       startDate: b.startDate || (prev && prev.startDate) || nextMonday(),
       createdAt: (prev && prev.createdAt) || now,
       updatedAt: now,

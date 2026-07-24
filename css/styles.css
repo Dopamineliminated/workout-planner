@@ -235,6 +235,37 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; font-
 .reco-out { margin-top: .6rem; padding: .7rem .8rem; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-weak); }
 .reco-badge { display: inline-block; background: var(--accent); color: #fff; font-size: .72rem; font-weight: 700; padding: .1rem .45rem; border-radius: 6px; margin-right: .3rem; }
 
+/* ---- 운동 설명(클릭) + 모달 ---- */
+.ex-info { cursor: pointer; border-bottom: 1px dotted var(--muted); }
+.ex-info .ii { color: var(--accent); font-size: .8em; }
+.log-ex-head .ex-info { border-bottom: none; }
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.45); padding: 1rem; animation: fade .15s ease;
+}
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  position: relative; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.3rem 1.2rem; max-width: 460px; width: 100%;
+  box-shadow: var(--shadow);
+}
+.modal h2 { margin: .2em 0 .4em; }
+.modal p { margin: .3em 0; }
+.modal-close {
+  position: absolute; top: .6rem; right: .6rem; width: 2rem; height: 2rem; padding: 0;
+  border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); line-height: 1;
+}
+
+/* ---- 가능 운동 선택 ---- */
+.avail-actions { display: flex; gap: .5rem; margin: .3rem 0 .6rem; }
+.avail-group { margin-top: .7rem; }
+.avail-muscle { font-weight: 800; font-size: .82rem; color: var(--accent); margin-bottom: .3rem; }
+.avail-item { flex-direction: row; align-items: flex-start; gap: .5rem; padding: .4rem .2rem; border-bottom: 1px solid var(--border); font-weight: 400; }
+.avail-item input { width: auto; margin-top: .2rem; accent-color: var(--accent); }
+.avail-text { display: flex; flex-direction: column; }
+.avail-text b { font-weight: 700; }
+.avail-desc { font-size: .8rem; color: var(--muted); line-height: 1.35; }
+
 /* ---- 유산소 ---- */
 .cardio-card { background: linear-gradient(135deg, color-mix(in srgb, #3a86c8 12%, var(--surface)), var(--surface)); }
 .cardio-add { display: grid; grid-template-columns: 1.2fr 1.3fr .8fr auto; gap: .4rem; margin: .7rem 0; align-items: center; }

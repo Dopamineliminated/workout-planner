@@ -54,8 +54,10 @@ const RESPONSE_SCHEMA = {
   required: ['days', 'notes'],
 };
 
-function catalogText() {
-  return EXERCISES.map((e) => `${e.id} | ${e.name} | ${MUSCLE_LABELS[e.muscle] || e.muscle} | ${e.kind}${e.bodyweight ? ' | 자중' : ''}`).join('\n');
+function catalogText(excluded) {
+  const ex = excluded || new Set();
+  return EXERCISES.filter((e) => !ex.has(e.id))
+    .map((e) => `${e.id} | ${e.name} | ${MUSCLE_LABELS[e.muscle] || e.muscle} | ${e.kind}${e.bodyweight ? ' | 자중' : ''}`).join('\n');
 }
 
 const SYSTEM_PROMPT = `당신은 근거 기반으로 훈련 프로그램을 설계하는 전문 퍼스널 트레이너입니다.
@@ -103,8 +105,8 @@ function buildUserMessage(profile, goals, routine) {
 - 분할: ${goals.split}
 - 진행 속도: ${goals.progression}
 
-# 운동 카탈로그 (id | 이름 | 부위 | 유형)
-${catalogText()}
+# 운동 카탈로그 (id | 이름 | 부위 | 유형) — 사용자가 가능한 운동만
+${catalogText(new Set(profile.excludedExercises || []))}
 
 # 알고리즘 기본 루틴 (요일별)
 ${JSON.stringify(compactDays, null, 2)}

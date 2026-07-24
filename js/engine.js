@@ -55,11 +55,11 @@ function buildSessionSlots(sessionType, focusMuscles, caps) {
   return slots;
 }
 
-function selectExercises(slots, allowed, seed) {
+function selectExercises(slots, allowed, seed, excluded) {
   const used = new Set();
   const chosen = [];
   slots.forEach((slot, i) => {
-    let cands = candidatesFor(slot, allowed);
+    let cands = candidatesFor(slot, allowed, excluded);
     // 정렬: 장비 선호 → id(안정적)
     cands = cands.slice().sort((a, b) => {
       const pa = equipPreference(a, slot.kind), pb = equipPreference(b, slot.kind);
@@ -96,6 +96,7 @@ export function generateRoutine(profile, goals, opts = {}) {
   const seed = opts.seed != null ? opts.seed : weekNumber;
 
   const allowed = allowedEquipment(profile.equipment);
+  const excluded = new Set(profile.excludedExercises || []);
   const caps = EXPERIENCE_CAPS[profile.experience] || EXPERIENCE_CAPS.intermediate;
   const goal = goals.primaryGoal || 'hypertrophy';
 
@@ -110,7 +111,7 @@ export function generateRoutine(profile, goals, opts = {}) {
   trainDays.forEach((wd, idx) => {
     const sessionType = sequence[idx];
     const slots = buildSessionSlots(sessionType, goals.focusMuscles, caps);
-    let picks = selectExercises(slots, allowed, seed + idx * 7);
+    let picks = selectExercises(slots, allowed, seed + idx * 7, excluded);
 
     // 세트/횟수 배정
     let exercises = picks.map(({ exercise, slot }) => {
