@@ -36,21 +36,35 @@ let logDay = null;        // 기록 뷰에서 선택된 요일
 let bodyMetric = 'weightKg';
 let pendingAdjust = null; // 다음 주 생성 직후 표시할 조정 내역
 let inbodyStaged = null;  // 설정에서 업로드한 인바디 CSV(저장 시 체성분으로 가져옴)
+let authState = 'loading'; // 'loading' | 'in'(로그인됨) | 'out'(로그인 필요)
+let loginMode = 'login';   // 로그인 화면 모드: 'login' | 'signup'
 
 // ---------- 부트스트랩 ----------
 init();
 async function init() {
   buildShell();
-  try { await api.load(); } catch (e) { toast('상태 로드 실패: ' + e.message, 'error'); }
+  try { await api.load(); } catch (e) {}
   window.addEventListener('hashchange', render);
   window.addEventListener('wp-synced', () => render());
-  render();
-  // 클라우드 동기화 시작(설정돼 있으면)
-  sync.init((s) => {
-    if (s && s.error) toast('동기화 오류: ' + s.error, 'error');
-    else if (s && s.pulledAt) toast('클라우드에서 동기화됐어요.', 'success');
-    if ((location.hash || '').slice(1) === 'settings') render(); // 로그인 상태 반영
-  });
+  render(); // authState 'loading' → 스피너
+  sync.onStatus(onSyncStatus);
+  sync.init();
+}
+
+function onSyncStatus(s) {
+  if (s.type === 'auth') {
+    authState = sync.user() ? 'in' : 'out';
+    render();
+  } else if (s.type === 'offline') {
+    // firebase 로드 실패(오프라인): 이전에 로그인했었다면 로컬 캐시로 사용
+    authState = sync.isAuthed() ? 'in' : 'out';
+    render();
+    if (authState === 'out') toast('오프라인이에요. 로그인은 인터넷 연결 후 가능해요.', 'error');
+  } else if (s.type === 'pulled') {
+    if (authState === 'in') render();
+  } else if (s.error) {
+    toast('동기화 오류: ' + s.error, 'error');
+  }
 }
 
 function buildShell() {
@@ -98,9 +112,88 @@ function setupComplete() {
   return store.state && store.state.profile && store.state.goals;
 }
 
+// ---------- 로그인 / 회원가입 ----------
+function viewLogin() {
+  const isSignup = loginMode === 'signup';
+  return `
+  <section class="login">
+    <div class="login-hero">
+      <div class="cat-emoji">🐱</div>
+      <h1>고양이 헬스</h1>
+      <p class="muted">로그인하고 어디서든 내 루틴을 이어가세요</p>
+    </div>
+    <div class="card login-card">
+      <div class="seg">
+        <button class="seg-btn ${!isSignup ? 'active' : ''}" data-mode="login">로그인</button>
+        <button class="seg-btn ${isSignup ? 'active' : ''}" data-mode="signup">회원가입</button>
+      </div>
+      <label>이메일<input id="lg-email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com"></label>
+      <label>비밀번호<input id="lg-pw" type="password" autocomplete="${isSignup ? 'new-password' : 'current-password'}" placeholder="6자 이상"></label>
+      <div class="actions"><button id="lg-submit" class="primary block">${isSignup ? '회원가입' : '로그인'}</button></div>
+      <div class="or"><span>또는</span></div>
+      <button id="lg-google" class="ghost block">Google로 계속하기</button>
+    </div>
+  </section>`;
+}
+
+function authErrorMsg(e) {
+  const c = (e && e.code) || '';
+  const map = {
+    'auth/invalid-email': '이메일 형식이 올바르지 않아요.',
+    'auth/invalid-credential': '이메일 또는 비밀번호가 올바르지 않아요.',
+    'auth/wrong-password': '비밀번호가 올바르지 않아요.',
+    'auth/user-not-found': '등록되지 않은 계정이에요. 회원가입을 해주세요.',
+    'auth/email-already-in-use': '이미 가입된 이메일이에요. 로그인해 주세요.',
+    'auth/weak-password': '비밀번호는 6자 이상이어야 해요.',
+    'auth/popup-closed-by-user': '로그인 창이 닫혔어요.',
+    'auth/popup-blocked': '팝업이 차단됐어요. 브라우저 팝업 허용 후 다시 시도해 주세요.',
+    'auth/network-request-failed': '네트워크 오류예요. 인터넷 연결을 확인해 주세요.',
+    'auth/operation-not-allowed': '이 로그인 방식이 꺼져 있어요(Firebase 콘솔에서 사용 설정 필요).',
+  };
+  return map[c] || (e && e.message) || '로그인에 실패했어요.';
+}
+
+function wireLogin() {
+  qsa('.seg-btn').forEach((b) => b.addEventListener('click', () => { loginMode = b.dataset.mode; render(); }));
+
+  const submit = qs('#lg-submit');
+  if (submit) submit.addEventListener('click', async (e) => {
+    const email = qs('#lg-email').value.trim();
+    const pw = qs('#lg-pw').value;
+    if (!email || !pw) { toast('이메일과 비밀번호를 입력하세요.', 'error'); return; }
+    e.currentTarget.disabled = true; e.currentTarget.textContent = '처리 중…';
+    try {
+      if (loginMode === 'signup') await sync.signUpEmail(email, pw);
+      else await sync.signInEmail(email, pw);
+      // 성공 시 onAuthStateChanged → 화면 전환
+    } catch (err) {
+      toast(authErrorMsg(err), 'error');
+      e.currentTarget.disabled = false; e.currentTarget.textContent = loginMode === 'signup' ? '회원가입' : '로그인';
+    }
+  });
+
+  const google = qs('#lg-google');
+  if (google) google.addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    try { await sync.signInGoogle(); }
+    catch (err) { toast(authErrorMsg(err), 'error'); e.currentTarget.disabled = false; }
+  });
+}
+
 function render() {
   const app = qs('#app');
   const nav = qs('#nav');
+  if (authState === 'loading') {
+    nav.style.visibility = 'hidden';
+    app.innerHTML = '<div class="loading">불러오는 중…</div>';
+    return;
+  }
+  if (authState === 'out') {
+    nav.style.visibility = 'hidden';
+    app.innerHTML = viewLogin();
+    wireLogin();
+    return;
+  }
   if (!setupComplete()) {
     nav.style.visibility = 'hidden';
     app.innerHTML = viewSetup('onboard');
@@ -964,87 +1057,25 @@ function wireBody() {
 // ==================================================
 //  설정 뷰
 // ==================================================
-const FIRESTORE_RULES = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-    }
-  }
-}`;
-
-function parseFirebaseConfig(text) {
-  let t = String(text || '').trim();
-  const m = t.match(/\{[\s\S]*\}/);
-  if (m) t = m[0];
-  try { return JSON.parse(t); } catch {}
-  // 따옴표 없는 키/홑따옴표/후행 콤마 보정 후 재시도
-  const t2 = t.replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":').replace(/'/g, '"').replace(/,\s*}/g, '}');
-  return JSON.parse(t2);
-}
-
 function renderSyncCard() {
-  const hasCfg = sync.hasConfig();
   const user = sync.user();
-  if (!hasCfg) {
-    return `<div class="card">
-      <h2>☁️ 클라우드 동기화 (Firebase)</h2>
-      <p class="muted small">폰↔PC 자동 동기화를 하려면 본인 Firebase 프로젝트가 필요해요(무료). 아래 순서대로 만든 뒤 firebaseConfig를 붙여넣으세요.</p>
-      <details class="reco"><summary>설정 방법 보기 (처음 한 번만)</summary>
-        <ol class="setup-steps">
-          <li><b>console.firebase.google.com</b> 에서 프로젝트 생성</li>
-          <li>빌드 → <b>Authentication</b> → 시작하기 → <b>Google</b> 로그인 사용 설정</li>
-          <li>빌드 → <b>Firestore Database</b> → 데이터베이스 만들기(프로덕션 모드)</li>
-          <li>Firestore <b>규칙(Rules)</b> 탭에 아래를 붙여넣고 게시:
-            <pre class="rules">${esc(FIRESTORE_RULES)}</pre></li>
-          <li>Authentication → <b>Settings → 승인된 도메인</b>에 <code>dopamineliminated.github.io</code> 추가</li>
-          <li>프로젝트 설정(⚙️) → 내 앱 → <b>웹 앱 추가(&lt;/&gt;)</b> → <code>firebaseConfig</code> 객체 복사</li>
-        </ol>
-      </details>
-      <label class="note-field">firebaseConfig 붙여넣기
-        <textarea id="fb-cfg" placeholder='{ "apiKey": "...", "authDomain": "...", "projectId": "...", "appId": "..." }'></textarea>
-      </label>
-      <div class="actions"><button id="fb-save" class="primary">설정 저장</button></div>
-    </div>`;
-  }
-  if (!user) {
-    return `<div class="card">
-      <h2>☁️ 클라우드 동기화</h2>
-      <p class="muted small">설정 저장됨. 로그인하면 이 기기 데이터가 클라우드와 동기화되고, 다른 기기에서 같은 계정으로 로그인하면 자동으로 이어집니다.</p>
-      <div class="actions">
-        <button id="fb-signin" class="primary">Google로 로그인</button>
-        <button id="fb-forget" class="ghost">설정 지우기</button>
-      </div>
-    </div>`;
-  }
+  const who = user ? esc(user.email || user.uid) : (sync.isAuthed() ? '(오프라인)' : '');
   return `<div class="card">
-    <h2>☁️ 클라우드 동기화 <span class="badge">연결됨</span></h2>
-    <p class="muted small"><b>${esc(user.email || user.uid)}</b> 로 동기화 중. 변경하면 자동으로 올라가고, 다른 기기 변경도 자동 반영돼요.</p>
+    <h2>☁️ 계정 <span class="badge">로그인됨</span></h2>
+    <p class="muted small"><b>${who}</b> · 데이터는 이 계정에 자동 저장·동기화돼요. 다른 기기에서 같은 계정으로 로그인하면 그대로 이어집니다.</p>
     <div class="actions">
       <button id="fb-push" class="ghost">지금 올리기</button>
       <button id="fb-pull" class="ghost">지금 내려받기</button>
-      <button id="fb-signout" class="ghost">로그아웃</button>
+      <button id="fb-signout" class="danger">로그아웃</button>
     </div>
   </div>`;
 }
 
 function wireSyncCard() {
   const on = (id, ev, fn) => { const el = qs('#' + id); if (el) el.addEventListener(ev, fn); };
-  on('fb-save', 'click', () => {
-    try {
-      const cfg = parseFirebaseConfig(qs('#fb-cfg').value);
-      if (!cfg || !cfg.apiKey || !cfg.projectId) throw new Error('apiKey/projectId가 없어요');
-      sync.saveConfig(cfg); toast('설정을 저장했어요. 이제 로그인하세요.', 'success'); render();
-    } catch (e) { toast('firebaseConfig를 읽지 못했어요: ' + e.message, 'error'); }
-  });
-  on('fb-signin', 'click', async () => {
-    try { toast('구글 로그인 창을 여는 중…'); await sync.signIn(); }
-    catch (e) { toast('로그인 실패: ' + e.message, 'error'); }
-  });
-  on('fb-forget', 'click', () => { if (confirm('Firebase 설정을 지울까요? (클라우드 데이터는 남습니다)')) { sync.clearConfig(); render(); } });
   on('fb-push', 'click', async () => { try { await sync.pushNow(); toast('클라우드에 올렸어요.', 'success'); } catch (e) { toast(e.message, 'error'); } });
   on('fb-pull', 'click', async () => { if (!confirm('클라우드 데이터로 이 기기를 덮어쓸까요?')) return; try { await sync.pullNow(); toast('내려받았어요.', 'success'); render(); } catch (e) { toast(e.message, 'error'); } });
-  on('fb-signout', 'click', async () => { await sync.signOut(); toast('로그아웃했어요.'); render(); });
+  on('fb-signout', 'click', async () => { if (!confirm('로그아웃할까요?')) return; await sync.signOut(); toast('로그아웃했어요.'); });
 }
 
 function viewSettings() {

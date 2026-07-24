@@ -86,6 +86,13 @@ export function applyRemoteState(obj) {
   localStorage.setItem(LS_STATE, JSON.stringify(store.state));
 }
 
+// 로그아웃 시 로컬 데이터 비우기(다른 계정으로 로그인해도 이전 데이터가 남지 않도록)
+export function clearLocal() {
+  store.state = emptyState();
+  store.state.settings.hasApiKey = !!getKey();
+  localStorage.removeItem(LS_STATE);
+}
+
 function getKey() { return localStorage.getItem(LS_KEY) || ''; }
 function setKey(k) { if (k) localStorage.setItem(LS_KEY, k); else localStorage.removeItem(LS_KEY); }
 

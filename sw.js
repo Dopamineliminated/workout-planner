@@ -1,7 +1,7 @@
 // 서비스 워커: 오프라인 지원 + 앱 셸 캐시.
 // 전략: 같은 출처 GET은 network-first(온라인이면 최신, 오프라인이면 캐시).
 // → 헬스장에서 신호 없어도 동작하고, 온라인일 땐 항상 최신 코드를 받음(캐시 정체 방지).
-const CACHE = 'workout-planner-v2';
+const CACHE = 'workout-planner-v3';
 const SHELL = [
   './',
   'index.html',
@@ -11,7 +11,7 @@ const SHELL = [
   'icon-512.png',
   'js/app.js', 'js/store.js', 'js/engine.js', 'js/adjust.js', 'js/exercises.js',
   'js/templates.js', 'js/core-util.js', 'js/util.js', 'js/ai.js', 'js/inbody.js',
-  'js/recommend.js', 'js/trend.js', 'js/sync.js',
+  'js/recommend.js', 'js/trend.js', 'js/sync.js', 'js/firebase-config.js',
 ];
 
 self.addEventListener('install', (e) => {
