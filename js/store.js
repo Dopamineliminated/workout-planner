@@ -4,7 +4,7 @@
 import { generateRoutine, dateForDay } from './engine.js';
 import { generateNextWeek } from './adjust.js';
 import { refineRoutine } from './ai.js';
-import { nextMonday } from './core-util.js';
+import { nextMonday, addDays, toISODate } from './core-util.js';
 import { WEEKDAY_LABELS, GOAL_LABELS, SESSION_LABELS } from './templates.js';
 import { MUSCLE_LABELS } from './exercises.js';
 
@@ -18,6 +18,7 @@ function emptyState() {
     version: 1, profile: null, goals: null, routine: null,
     logs: {}, body: [], history: [], cardio: [],
     exerciseWeights: {}, // 운동 id → 최근 사용 무게(kg). 루틴 생성 시 목표로 재사용.
+    exerciseSteps: {},   // 운동 id → 무게 단위(kg). 사용자가 넣는 무게 변화에서 학습.
     settings: { useAI: false, hasApiKey: false, model: 'claude-opus-4-8', updatedAt: null },
   };
 }
@@ -32,6 +33,7 @@ function normalizeState(s) {
     history: Array.isArray(s.history) ? s.history : [],
     cardio: Array.isArray(s.cardio) ? s.cardio : [],
     exerciseWeights: (s.exerciseWeights && typeof s.exerciseWeights === 'object') ? s.exerciseWeights : {},
+    exerciseSteps: (s.exerciseSteps && typeof s.exerciseSteps === 'object') ? s.exerciseSteps : {},
   };
 }
 
@@ -42,6 +44,22 @@ function representativeWeight(sets) {
   ws.sort((a, b) => a - b);
   const m = Math.floor(ws.length / 2);
   return ws.length % 2 ? ws[m] : (ws[m - 1] + ws[m]) / 2;
+}
+
+function gcdInt(a, b) { a = Math.abs(Math.round(a)); b = Math.abs(Math.round(b)); while (b) { const t = a % b; a = b; b = t; } return a; }
+
+// 이번 세션에서 쓴 무게들 + 이전 작업 무게의 변화폭(≥0.5kg)에서 무게 단위를 학습(gcd 누적).
+function learnStep(exerciseId, sets, prevWeight, stepsMap) {
+  const used = [...new Set((sets || [])
+    .filter((x) => Number(x.reps) > 0 && Number(x.weight) > 0)
+    .map((x) => Number(x.weight)))];
+  const points = [...new Set(prevWeight != null ? [...used, prevWeight] : used)].sort((a, b) => a - b);
+  let gInt = Math.round((stepsMap[exerciseId] || 0) * 100);
+  for (let i = 1; i < points.length; i++) {
+    const d = Math.round((points[i] - points[i - 1]) * 100);
+    if (d >= 50) gInt = gcdInt(gInt, d); // 0.5kg 미만 변화는 노이즈로 무시
+  }
+  if (gInt >= 50) stepsMap[exerciseId] = gInt / 100;
 }
 
 function readState() {
@@ -164,7 +182,12 @@ export const api = {
   async nextWeek() {
     const s = store.state;
     if (!s.routine) throw new Error('먼저 이번 주 루틴을 생성하세요.');
-    const { routine, changes, summary } = generateNextWeek(s.routine, s.logs, s.goals || {});
+    const start = s.routine.startDate;
+    const end = toISODate(addDays(start, 7));
+    const cardioEntries = (s.cardio || []).filter((x) => x.date >= start && x.date < end);
+    const { routine, changes, summary } = generateNextWeek(s.routine, s.logs, s.goals || {}, {
+      cardioEntries, bodyEntries: s.body || [], steps: s.exerciseSteps,
+    });
     s.history.push({ weekNumber: s.routine.weekNumber, startDate: s.routine.startDate, summary, archivedAt: new Date().toISOString() });
     s.routine = routine;
     // 조정된 다음 주 목표 무게를 기억(이후 재생성 시 재사용)
@@ -202,8 +225,9 @@ export const api = {
         })),
       })),
     };
-    // 이번에 사용한 무게를 운동별로 기억 → 다음 루틴 목표로 반영
+    // 무게 단위 학습(이전 무게 대비 변화) 후, 이번 무게를 기억 → 다음 루틴 목표로 반영
     for (const e of (b.exercises || [])) {
+      learnStep(e.id, e.sets, s.exerciseWeights[e.id], s.exerciseSteps);
       const w = representativeWeight(e.sets);
       if (w != null) s.exerciseWeights[e.id] = w;
     }

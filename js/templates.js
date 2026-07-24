@@ -225,6 +225,15 @@ export function cardioFor(goal) {
   return { ...(CARDIO_BY_GOAL[goal] || CARDIO_BY_GOAL.maintain) };
 }
 
+// 목표별 유산소 점진 증가 상한(회당 분, 주당 횟수)
+export const CARDIO_CAPS = {
+  strength:    { maxMinutes: 25, maxPerWeek: 3 },
+  hypertrophy: { maxMinutes: 30, maxPerWeek: 3 },
+  fatloss:     { maxMinutes: 45, maxPerWeek: 6 },
+  endurance:   { maxMinutes: 50, maxPerWeek: 6 },
+  maintain:    { maxMinutes: 35, maxPerWeek: 4 },
+};
+
 // 경력별: 근육당 최대 슬롯 수 / 세션당 총 운동 상한
 export const EXPERIENCE_CAPS = {
   beginner: { perMuscle: 2, maxExercises: 5, setBias: -1 },

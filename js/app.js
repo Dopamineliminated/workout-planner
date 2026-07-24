@@ -368,7 +368,8 @@ function viewDashboard() {
         <div class="stat hold"><b>${sm.counts.hold}</b><span>유지</span></div>
         <div class="stat down"><b>${sm.counts.down}</b><span>감량</span></div>
       </div>
-      ${sm.volumeDeltaPct != null ? `<p class="muted">총 볼륨 목표 ${sm.volumeDeltaPct >= 0 ? '+' : ''}${sm.volumeDeltaPct}% 조정</p>` : ''}
+      ${sm.volumeDeltaPct != null ? `<p class="muted small">총 볼륨 목표 ${sm.volumeDeltaPct >= 0 ? '+' : ''}${sm.volumeDeltaPct}% 조정</p>` : ''}
+      ${sm.trend && sm.trend.note ? `<p class="muted small">📊 ${esc(sm.trend.note)}</p>` : ''}
     </div>`;
   }
 
@@ -547,11 +548,22 @@ function renderAdjustBanner(pa) {
       <div class="stat hold"><b>${sm.counts.hold}</b><span>유지</span></div>
       <div class="stat down"><b>${sm.counts.down}</b><span>감량</span></div>
     </div>
+    ${sm.trend && sm.trend.note ? `<p class="muted small">📊 ${esc(sm.trend.note)}</p>` : ''}
+    ${sm.cardio ? `<p class="muted small">🏃 유산소 ${cardioChangeText(sm.cardio)}</p>` : ''}
     <details><summary>운동별 변경 자세히 보기</summary>
       <table class="chg-table"><tbody>${rows || '<tr><td>변경 사항 없음</td></tr>'}</tbody></table>
     </details>
     <button class="ghost sm" id="dismiss-adjust">닫기</button>
   </div>`;
+}
+
+function cardioChangeText(c) {
+  const arrow = c.type === 'up' ? '▲' : c.type === 'down' ? '▼' : '→';
+  const changed = c.fromPerWeek !== c.toPerWeek || c.fromMin !== c.toMin;
+  const body = changed
+    ? `${c.fromPerWeek}회·${c.fromMin}분 → ${c.toPerWeek}회·${c.toMin}분`
+    : `${c.toPerWeek}회·${c.toMin}분 유지`;
+  return `${arrow} ${body} — ${esc(c.reason)}`;
 }
 
 function changeText(c) {
