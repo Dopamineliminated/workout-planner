@@ -172,6 +172,7 @@ export function generateNextWeek(prevRoutine, logs, goals) {
     generatedAt: new Date().toISOString(),
     startDate: toISODate(addDays(prevRoutine.startDate, 7)),
     basedOnWeek: prevWeek,
+    cardio: prevRoutine.cardio || null,
     days,
   };
 

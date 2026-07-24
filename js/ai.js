@@ -4,6 +4,7 @@
 
 import { EXERCISES, MUSCLE_LABELS } from './exercises.js';
 import { WEEKDAYS, WEEKDAY_LABELS, GOAL_LABELS } from './templates.js';
+import { ageFromBirth } from './core-util.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -85,8 +86,9 @@ function buildUserMessage(profile, goals, routine) {
           })),
         };
   }
+  const age = ageFromBirth(profile.birthDate);
   return `# 사용자 프로필
-- 성별/나이: ${profile.sex || '-'} / ${profile.age || '-'}
+- 성별/나이: ${profile.sex || '-'} / ${age != null ? age + '세' : '-'}
 - 키/몸무게: ${profile.heightCm || '-'}cm / ${profile.weightKg || '-'}kg
 - 경력: ${profile.experience}
 - 주당 운동일수: ${profile.daysPerWeek}일
@@ -96,7 +98,6 @@ function buildUserMessage(profile, goals, routine) {
 # 목표
 - 주 목표: ${GOAL_LABELS[goals.primaryGoal] || goals.primaryGoal}
 - 분할: ${goals.split}
-- 집중 근육: ${(goals.focusMuscles || []).join(', ') || '없음'}
 - 진행 속도: ${goals.progression}
 
 # 운동 카탈로그 (id | 이름 | 부위 | 유형)
@@ -105,7 +106,7 @@ ${catalogText()}
 # 알고리즘 기본 루틴 (요일별)
 ${JSON.stringify(compactDays, null, 2)}
 
-위 기본 루틴을 검토하고 개선된 주간 루틴을 스키마에 맞춰 JSON으로 반환하세요.`;
+위 기본 루틴을 검토하고 개선된 주간 루틴을 스키마에 맞춰 JSON으로 반환하세요. 유산소는 앱이 별도로 처방하므로 근력 운동 위주로만 구성하세요.`;
 }
 
 // 응답을 우리 루틴 형식으로 정규화(누락 필드 보정, 라벨 재계산).

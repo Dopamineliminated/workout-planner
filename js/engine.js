@@ -4,7 +4,7 @@
 import { EQUIPMENT_SETS, candidatesFor, MUSCLE_LABELS } from './exercises.js';
 import {
   WEEKDAYS, WEEKDAY_LABELS, trainingDaysFor, buildSessionSequence,
-  slotsFor, schemeFor, SESSION_LABELS, EXPERIENCE_CAPS,
+  slotsFor, schemeFor, SESSION_LABELS, EXPERIENCE_CAPS, cardioFor,
 } from './templates.js';
 import { toISODate, addDays } from './core-util.js';
 
@@ -155,6 +155,7 @@ export function generateRoutine(profile, goals, opts = {}) {
     split,
     generatedAt: new Date().toISOString(),
     startDate,
+    cardio: cardioFor(goal),
     days,
   };
 }

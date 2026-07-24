@@ -212,6 +212,19 @@ export const GOAL_LABELS = {
   maintain: '체력 유지',
 };
 
+// 목표별 유산소(cardio) 처방. perWeek: 주당 횟수, minutes: 회당 분, intensity/note.
+export const CARDIO_BY_GOAL = {
+  strength:    { perWeek: 2, minutes: 15, intensity: '저강도(가벼운 유산소)', note: '심폐 건강·회복 목적. 하체 근력일과 겹치지 않게 배치하세요.' },
+  hypertrophy: { perWeek: 2, minutes: 20, intensity: '저~중강도',           note: '근성장 방해를 줄이려 저강도 위주로, 근력운동과 다른 시간대를 권장.' },
+  fatloss:     { perWeek: 4, minutes: 30, intensity: '중강도 + HIIT 1회(선택)', note: '근력운동 후 또는 별도 세션. 꾸준함이 핵심이에요.' },
+  endurance:   { perWeek: 4, minutes: 35, intensity: '중~고강도',            note: '지속주와 인터벌을 병행하세요.' },
+  maintain:    { perWeek: 3, minutes: 25, intensity: '중강도',               note: '심폐 건강 유지용.' },
+};
+
+export function cardioFor(goal) {
+  return { ...(CARDIO_BY_GOAL[goal] || CARDIO_BY_GOAL.maintain) };
+}
+
 // 경력별: 근육당 최대 슬롯 수 / 세션당 총 운동 상한
 export const EXPERIENCE_CAPS = {
   beginner: { perMuscle: 2, maxExercises: 5, setBias: -1 },

@@ -36,3 +36,15 @@ export function roundToPlate(kg, step = 1.25) {
 export function round1(n) {
   return Math.round(n * 10) / 10;
 }
+
+// 생년월일('YYYY-MM-DD') → 만 나이. 유효하지 않으면 null.
+export function ageFromBirth(iso) {
+  if (!iso) return null;
+  const b = parseISODate(iso);
+  if (isNaN(b.getTime())) return null;
+  const t = new Date();
+  let a = t.getFullYear() - b.getFullYear();
+  const m = t.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && t.getDate() < b.getDate())) a--;
+  return a >= 0 && a < 130 ? a : null;
+}

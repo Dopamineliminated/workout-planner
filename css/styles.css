@@ -226,9 +226,27 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; font-
 .toast.success { background: var(--up); color: #fff; }
 .toast.error { background: var(--down); color: #fff; }
 
+/* ---- 인바디 목표 추천 패널 ---- */
+.reco { margin-top: 1rem; border: 1px dashed var(--border); border-radius: 12px; padding: .6rem .8rem; background: var(--surface-2); }
+.reco > summary { cursor: pointer; font-weight: 700; color: var(--accent); }
+.reco-row { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr auto; gap: .4rem; margin: .4rem 0; align-items: center; }
+.reco-row input { padding: .45rem .5rem; }
+.rc-del { padding: .35rem .55rem; background: transparent; border-color: var(--border); color: var(--muted); }
+.reco-out { margin-top: .6rem; padding: .7rem .8rem; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-weak); }
+.reco-badge { display: inline-block; background: var(--accent); color: #fff; font-size: .72rem; font-weight: 700; padding: .1rem .45rem; border-radius: 6px; margin-right: .3rem; }
+
+/* ---- 유산소 ---- */
+.cardio-card { background: linear-gradient(135deg, color-mix(in srgb, #3a86c8 12%, var(--surface)), var(--surface)); }
+.cardio-add { display: grid; grid-template-columns: 1.2fr 1.3fr .8fr auto; gap: .4rem; margin: .7rem 0; align-items: center; }
+.cardio-add input, .cardio-add select { padding: .45rem .5rem; }
+.progress { height: 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; margin: .5rem 0; }
+.progress-bar { height: 100%; background: var(--accent); border-radius: 999px; transition: width .3s; }
+
 @media (max-width: 560px) {
   .brand { font-size: .95rem; }
   #nav button { padding: .4rem .5rem; font-size: .85rem; }
   h1 { font-size: 1.35rem; }
   .wc-label { display: none; }
+  .reco-row { grid-template-columns: 1fr 1fr; }
+  .cardio-add { grid-template-columns: 1fr 1fr; }
 }

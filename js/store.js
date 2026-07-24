@@ -16,7 +16,7 @@ export const store = { state: null, meta: null };
 function emptyState() {
   return {
     version: 1, profile: null, goals: null, routine: null,
-    logs: {}, body: [], history: [],
+    logs: {}, body: [], history: [], cardio: [],
     settings: { useAI: false, hasApiKey: false, model: 'claude-opus-4-8', updatedAt: null },
   };
 }
@@ -29,6 +29,7 @@ function normalizeState(s) {
     logs: s.logs || {},
     body: Array.isArray(s.body) ? s.body : [],
     history: Array.isArray(s.history) ? s.history : [],
+    cardio: Array.isArray(s.cardio) ? s.cardio : [],
   };
 }
 
@@ -73,6 +74,16 @@ function buildMeta() {
       { value: 'standard', label: '표준' },
       { value: 'aggressive', label: '빠르게 (공격적)' },
     ],
+    cardioTypes: [
+      { value: '빠르게 걷기', label: '빠르게 걷기' },
+      { value: '러닝', label: '러닝(달리기)' },
+      { value: '사이클', label: '자전거/사이클' },
+      { value: '로잉', label: '로잉' },
+      { value: '일립티컬', label: '일립티컬' },
+      { value: '계단', label: '계단 오르기' },
+      { value: 'HIIT', label: '인터벌(HIIT)' },
+      { value: '수영', label: '수영' },
+    ],
     daysOptions: [2, 3, 4, 5, 6],
     defaultStartDate: nextMonday(),
   };
@@ -91,7 +102,8 @@ export const api = {
     const prev = store.state.profile;
     store.state.profile = {
       name: b.name || '', sex: b.sex || '',
-      age: num(b.age), heightCm: num(b.heightCm), weightKg: num(b.weightKg),
+      birthDate: b.birthDate || (prev && prev.birthDate) || '',
+      heightCm: num(b.heightCm), weightKg: num(b.weightKg),
       experience: b.experience || 'beginner',
       daysPerWeek: clamp(num(b.daysPerWeek) || 3, 2, 6),
       sessionMinutes: clamp(num(b.sessionMinutes) || 60, 20, 180),
@@ -107,7 +119,6 @@ export const api = {
     store.state.goals = {
       primaryGoal: b.primaryGoal || 'hypertrophy',
       split: b.split || 'auto',
-      focusMuscles: Array.isArray(b.focusMuscles) ? b.focusMuscles.slice(0, 3) : [],
       progression: b.progression || 'standard',
       updatedAt: new Date().toISOString(),
     };
@@ -176,6 +187,24 @@ export const api = {
 
   async deleteBody(date) {
     store.state.body = store.state.body.filter((x) => x.date !== date);
+    persist();
+  },
+
+  async saveCardio(b) {
+    const s = store.state;
+    const minutes = num(b.minutes);
+    if (!b.date || !minutes) throw new Error('날짜와 시간(분)을 입력하세요.');
+    const entry = {
+      id: b.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+      date: b.date, type: b.type || '유산소', minutes, note: b.note || '',
+    };
+    s.cardio.push(entry);
+    s.cardio.sort((a, c) => a.date.localeCompare(c.date));
+    persist();
+  },
+
+  async deleteCardio(id) {
+    store.state.cardio = store.state.cardio.filter((x) => x.id !== id);
     persist();
   },
 

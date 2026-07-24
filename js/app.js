@@ -1,8 +1,10 @@
 // 앱 진입점: 상태 로드 → 라우팅 → 뷰 렌더링 → 이벤트 연결.
 import { api, store } from './store.js';
 import {
-  WEEKDAYS, esc, qs, qsa, todayKey, dayDate, fmtDate, todayISO, toast, lineChart,
+  WEEKDAYS, esc, qs, qsa, todayKey, dayDate, addDays, fmtDate, todayISO, toast, lineChart,
 } from './util.js';
+import { recommendGoal } from './recommend.js';
+import { ageFromBirth } from './core-util.js';
 
 const NAV = [
   { view: 'dashboard', label: '대시보드' },
@@ -96,8 +98,6 @@ function viewSetup(mode) {
   const p = (store.state && store.state.profile) || {};
   const g = (store.state && store.state.goals) || {};
   const defStart = (store.meta && store.meta.defaultStartDate) || todayISO();
-  const muscleOpts = (store.meta && store.meta.muscleOptions) || [];
-  const focus = g.focusMuscles || [];
 
   return `
   <section class="setup">
@@ -116,7 +116,7 @@ function viewSetup(mode) {
             <option value="남" ${p.sex === '남' ? 'selected' : ''}>남</option>
             <option value="여" ${p.sex === '여' ? 'selected' : ''}>여</option>
           </select></label>
-        <label>나이<input id="f-age" type="number" inputmode="numeric" value="${p.age ?? ''}" placeholder="세"></label>
+        <label>생년월일<input id="f-birth" type="date" value="${esc(p.birthDate || '')}" max="${todayISO()}"></label>
         <label>키(cm)<input id="f-height" type="number" inputmode="decimal" value="${p.heightCm ?? ''}" placeholder="cm"></label>
         <label>몸무게(kg)<input id="f-weight" type="number" inputmode="decimal" value="${p.weightKg ?? ''}" placeholder="kg"></label>
         <label>운동 경력${selectHtml('f-exp', 'experiences', p.experience || 'beginner')}</label>
@@ -136,12 +136,16 @@ function viewSetup(mode) {
         <label>분할 방식${selectHtml('f-split', 'splits', g.split || 'auto')}</label>
         <label>진행 속도${selectHtml('f-prog', 'progressions', g.progression || 'standard')}</label>
       </div>
-      <div class="field">
-        <span class="field-label">집중 근육 (최대 3개, 선택)</span>
-        <div class="chips" id="f-focus">
-          ${muscleOpts.map((o) => `<label class="chip"><input type="checkbox" value="${o.value}" ${focus.includes(o.value) ? 'checked' : ''}>${esc(o.label)}</label>`).join('')}
+      <details class="reco">
+        <summary>🤔 목표를 잘 모르겠다면 — 최근 인바디로 추천받기</summary>
+        <p class="muted small">최근 인바디 결과를 1~3개 입력하면 추천 목표를 알려드려요(많을수록 추세 반영). 입력값은 체성분 기록에도 함께 저장돼요.</p>
+        <div id="reco-rows"></div>
+        <div class="actions">
+          <button type="button" id="reco-add" class="ghost sm">＋ 결과 추가</button>
+          <button type="button" id="reco-run" class="ghost sm">추천 받기</button>
         </div>
-      </div>
+        <div id="reco-result"></div>
+      </details>
     </div>
 
     <div class="actions">
@@ -151,20 +155,63 @@ function viewSetup(mode) {
   </section>`;
 }
 
+function recoRowHtml() {
+  return `<div class="reco-row">
+    <input class="rc-date" type="date" max="${todayISO()}" title="측정일(선택)">
+    <input class="rc-wt" type="number" inputmode="decimal" placeholder="체중kg">
+    <input class="rc-smm" type="number" inputmode="decimal" placeholder="골격근kg">
+    <input class="rc-bf" type="number" inputmode="decimal" placeholder="체지방%">
+    <button type="button" class="rc-del" title="삭제">✕</button>
+  </div>`;
+}
+function readRecoEntries() {
+  return qsa('.reco-row')
+    .map((row) => ({
+      date: qs('.rc-date', row).value || todayISO(),
+      weightKg: qs('.rc-wt', row).value,
+      skeletalMuscleKg: qs('.rc-smm', row).value,
+      bodyFatPct: qs('.rc-bf', row).value,
+    }))
+    .filter((e) => e.weightKg || e.skeletalMuscleKg || e.bodyFatPct)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function wireSetup(mode) {
-  // 집중 근육 최대 3개 제한
-  const focusBox = qs('#f-focus');
-  focusBox.addEventListener('change', () => {
-    const checked = qsa('input:checked', focusBox);
-    if (checked.length > 3) { checked[checked.length - 1].checked = false; toast('집중 근육은 최대 3개까지예요.', 'error'); }
-  });
+  // 인바디 기반 목표 추천 패널
+  const recoRows = qs('#reco-rows');
+  if (recoRows) {
+    recoRows.insertAdjacentHTML('beforeend', recoRowHtml());
+    qs('#reco-add').addEventListener('click', () => {
+      if (qsa('.reco-row', recoRows).length >= 4) { toast('최대 4개까지 입력할 수 있어요.'); return; }
+      recoRows.insertAdjacentHTML('beforeend', recoRowHtml());
+    });
+    recoRows.addEventListener('click', (e) => {
+      const del = e.target.closest('.rc-del');
+      if (del && qsa('.reco-row', recoRows).length > 1) del.closest('.reco-row').remove();
+    });
+    qs('#reco-run').addEventListener('click', () => {
+      const entries = readRecoEntries();
+      const rec = recommendGoal({ sex: qs('#f-sex').value, heightCm: qs('#f-height').value, entries });
+      const box = qs('#reco-result');
+      if (!rec.goal) { box.innerHTML = `<p class="muted small">${esc(rec.reason)}</p>`; return; }
+      box.innerHTML = `<div class="reco-out">
+        <div><span class="reco-badge">추천 목표</span> <b>${esc(rec.label)}</b></div>
+        <p class="muted small">${esc(rec.reason)}</p>
+        <button type="button" id="reco-apply" class="primary sm">이 목표로 설정</button>
+      </div>`;
+      qs('#reco-apply').addEventListener('click', () => {
+        qs('#f-goal').value = rec.goal;
+        toast(`주 목표를 '${rec.label}'(으)로 설정했어요.`, 'success');
+      });
+    });
+  }
 
   qs('#setup-save').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     const profile = {
       name: qs('#f-name').value.trim(),
       sex: qs('#f-sex').value,
-      age: qs('#f-age').value,
+      birthDate: qs('#f-birth').value,
       heightCm: qs('#f-height').value,
       weightKg: qs('#f-weight').value,
       experience: qs('#f-exp').value,
@@ -177,12 +224,13 @@ function wireSetup(mode) {
       primaryGoal: qs('#f-goal').value,
       split: qs('#f-split').value,
       progression: qs('#f-prog').value,
-      focusMuscles: qsa('#f-focus input:checked').map((c) => c.value),
     };
     btn.disabled = true; btn.textContent = '저장 중…';
     try {
       await api.saveProfile(profile);
       await api.saveGoals(goals);
+      // 추천 패널에 입력한 인바디 값이 있으면 체성분 기록에도 저장
+      for (const en of readRecoEntries()) { try { await api.saveBody(en); } catch {} }
       const hadRoutine = !!store.state.routine;
       if (mode === 'onboard' || !hadRoutine) {
         await api.generate(false);
@@ -287,6 +335,21 @@ function viewDashboard() {
     </div>`;
   }
 
+  // 이번 주 유산소 진행
+  let cardioMini = '';
+  if (r && r.cardio) {
+    const wk = weekCardioEntries(r);
+    const mins = wk.reduce((a, x) => a + (Number(x.minutes) || 0), 0);
+    const tCnt = r.cardio.perWeek, tMin = r.cardio.perWeek * r.cardio.minutes;
+    const pct = tMin ? Math.min(100, Math.round((mins / tMin) * 100)) : 0;
+    cardioMini = `<div class="card">
+      <div class="card-eyebrow">🏃 이번 주 유산소</div>
+      <h2>${wk.length}/${tCnt}회 · ${mins}/${tMin}분</h2>
+      <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>
+      <button class="ghost" data-go="log">유산소 기록 →</button>
+    </div>`;
+  }
+
   return `
   <section class="dash">
     <h1>${name}오늘도 화이팅! 🔥</h1>
@@ -294,6 +357,7 @@ function viewDashboard() {
     ${todayCard}
     ${weekGrid}
     <div class="grid2">
+      ${cardioMini}
       ${adjustCard}
       ${bodyCard}
     </div>
@@ -366,8 +430,20 @@ function viewRoutine() {
     </div>
     ${adjustBanner}
     ${aiNote}
+    ${renderCardioCard(r)}
     <div class="day-list">${days}</div>
   </section>`;
+}
+
+function renderCardioCard(r) {
+  const c = r.cardio;
+  if (!c) return '';
+  return `<div class="card cardio-card">
+    <div class="card-eyebrow">🏃 유산소 처방</div>
+    <h2>주 ${c.perWeek}회 · 회당 ${c.minutes}분</h2>
+    <p class="muted small"><b>강도</b> ${esc(c.intensity)}</p>
+    <p class="muted small">${esc(c.note)} 기록은 <b>기록 탭</b>에서 남길 수 있어요.</p>
+  </div>`;
 }
 
 function renderDayCard(r, wd) {
@@ -528,6 +604,7 @@ function viewLog() {
   return `
   <section class="logview">
     <div class="page-head"><h1>운동 기록</h1><p class="lead">${r.weekNumber}주차</p></div>
+    ${renderCardioLog(r)}
     ${selector}
     <div class="card">
       <div class="card-eyebrow">${dayLabel(logDay)} · ${date}</div>
@@ -543,8 +620,53 @@ function viewLog() {
   </section>`;
 }
 
+function weekCardioEntries(r) {
+  const start = r.startDate, end = addDays(start, 7); // util.addDays → ISO 문자열
+  return (store.state.cardio || [])
+    .filter((x) => x.date >= start && x.date < end)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function renderCardioLog(r) {
+  const c = r.cardio;
+  const week = weekCardioEntries(r);
+  const done = week.length;
+  const mins = week.reduce((a, x) => a + (Number(x.minutes) || 0), 0);
+  const tCnt = c ? c.perWeek : null;
+  const tMin = c ? c.perWeek * c.minutes : null;
+  const rows = week.map((x) => `<tr>
+      <td>${fmtDate(x.date)}</td><td>${esc(x.type)}</td>
+      <td class="num">${x.minutes}분</td>
+      <td><button class="link-del" data-cardio-del="${esc(x.id)}">삭제</button></td>
+    </tr>`).join('');
+  return `<div class="card cardio-log">
+    <div class="card-eyebrow">🏃 이번 주 유산소</div>
+    <h2>${done}${tCnt ? '/' + tCnt : ''}회 · ${mins}분${tMin ? ` <span class="muted small">/ 목표 ${tMin}분</span>` : ''}</h2>
+    ${c ? `<p class="muted small">처방: 주 ${c.perWeek}회 · 회당 ${c.minutes}분 · ${esc(c.intensity)}</p>` : ''}
+    <div class="cardio-add">
+      <input id="cd-date" type="date" value="${todayISO()}" max="${todayISO()}">
+      ${selectHtml('cd-type', 'cardioTypes', '빠르게 걷기')}
+      <input id="cd-min" type="number" inputmode="numeric" placeholder="분">
+      <button id="cd-save" class="ghost sm">추가</button>
+    </div>
+    ${week.length ? `<div class="table-scroll"><table class="body-table"><tbody>${rows}</tbody></table></div>` : '<p class="muted small">아직 이번 주 유산소 기록이 없어요.</p>'}
+  </div>`;
+}
+
 function wireLog() {
   qsa('.day-tab').forEach((b) => b.addEventListener('click', () => { logDay = b.dataset.day; render(); }));
+
+  const cdSave = qs('#cd-save');
+  if (cdSave) cdSave.addEventListener('click', async () => {
+    try {
+      await api.saveCardio({ date: qs('#cd-date').value, type: qs('#cd-type').value, minutes: qs('#cd-min').value });
+      toast('유산소 기록을 추가했어요.', 'success');
+      render();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  qsa('[data-cardio-del]').forEach((b) => b.addEventListener('click', async () => {
+    try { await api.deleteCardio(b.dataset.cardioDel); render(); } catch (err) { toast(err.message, 'error'); }
+  }));
 
   const fill = qs('#log-fill');
   if (fill) fill.addEventListener('click', () => {
@@ -693,7 +815,7 @@ function viewSettings() {
         <div><span>목표</span><b>${goalLabel(g.primaryGoal)}</b></div>
         <div><span>분할</span><b>${splitLabel(g.split)}</b></div>
         <div><span>진행</span><b>${optLabel('progressions', g.progression)}</b></div>
-        <div><span>집중</span><b>${(g.focusMuscles || []).map((mm) => optLabel('muscleOptions', mm)).join(', ') || '없음'}</b></div>
+        <div><span>나이</span><b>${ageFromBirth(p.birthDate) != null ? ageFromBirth(p.birthDate) + '세' : '-'}</b></div>
         <div><span>시작일</span><b>${esc(p.startDate || '-')}</b></div>
       </div>
       <div class="actions"><button class="ghost" id="edit-setup">프로필 · 목표 수정</button></div>
