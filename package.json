@@ -1,0 +1,14 @@
+{
+  "name": "workout-planner",
+  "version": "1.0.0",
+  "description": "요일별 맞춤 헬스 루틴 생성·기록·자동 조정 — 정적 웹앱 (GitHub Pages 배포)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node serve.js",
+    "serve": "node serve.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

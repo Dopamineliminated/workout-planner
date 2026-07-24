@@ -1,0 +1,11 @@
+# OS / 에디터
+.DS_Store
+Thumbs.db
+*.log
+
+# 의존성(현재 없음)
+node_modules/
+
+# 구버전 서버 데이터(더 이상 사용 안 함, 혹시 몰라 무시)
+/data/
+config.json

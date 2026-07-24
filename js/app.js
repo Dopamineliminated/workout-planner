@@ -1,0 +1,794 @@
+// 앱 진입점: 상태 로드 → 라우팅 → 뷰 렌더링 → 이벤트 연결.
+import { api, store } from './store.js';
+import {
+  WEEKDAYS, esc, qs, qsa, todayKey, dayDate, fmtDate, todayISO, toast, lineChart,
+} from './util.js';
+
+const NAV = [
+  { view: 'dashboard', label: '대시보드' },
+  { view: 'routine', label: '루틴' },
+  { view: 'log', label: '기록' },
+  { view: 'body', label: '체성분' },
+  { view: 'settings', label: '설정' },
+];
+
+// UI 로컬 상태
+let logDay = null;        // 기록 뷰에서 선택된 요일
+let bodyMetric = 'weightKg';
+let pendingAdjust = null; // 다음 주 생성 직후 표시할 조정 내역
+
+// ---------- 부트스트랩 ----------
+init();
+async function init() {
+  buildShell();
+  try { await api.load(); } catch (e) { toast('상태 로드 실패: ' + e.message, 'error'); }
+  window.addEventListener('hashchange', render);
+  render();
+}
+
+function buildShell() {
+  document.body.innerHTML = `
+    <header class="topbar">
+      <div class="brand">💪 헬스 루틴 플래너</div>
+      <nav id="nav">${NAV.map((n) => `<button data-view="${n.view}">${n.label}</button>`).join('')}</nav>
+    </header>
+    <main id="app"></main>`;
+  qs('#nav').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-view]');
+    if (b) location.hash = '#' + b.dataset.view;
+  });
+}
+
+function setupComplete() {
+  return store.state && store.state.profile && store.state.goals;
+}
+
+function render() {
+  const app = qs('#app');
+  const nav = qs('#nav');
+  if (!setupComplete()) {
+    nav.style.visibility = 'hidden';
+    app.innerHTML = viewSetup('onboard');
+    wireSetup('onboard');
+    return;
+  }
+  nav.style.visibility = 'visible';
+
+  let view = (location.hash || '#dashboard').slice(1);
+  if (view === 'setup') { app.innerHTML = viewSetup('edit'); wireSetup('edit'); markNav(''); return; }
+  if (!NAV.some((n) => n.view === view)) view = 'dashboard';
+  markNav(view);
+
+  const map = {
+    dashboard: [viewDashboard, wireDashboard],
+    routine: [viewRoutine, wireRoutine],
+    log: [viewLog, wireLog],
+    body: [viewBody, wireBody],
+    settings: [viewSettings, wireSettings],
+  };
+  const [renderFn, wireFn] = map[view];
+  app.innerHTML = renderFn();
+  if (wireFn) wireFn();
+  app.scrollTop = 0;
+  window.scrollTo(0, 0);
+}
+
+function markNav(view) {
+  qsa('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+}
+
+// ---------- 라벨 헬퍼 ----------
+function optLabel(listName, value) {
+  const list = (store.meta && store.meta[listName]) || [];
+  const found = list.find((o) => o.value === value);
+  return found ? found.label : value;
+}
+function selectHtml(id, listName, selected, attrs = '') {
+  const list = (store.meta && store.meta[listName]) || [];
+  return `<select id="${id}" ${attrs}>${list.map((o) =>
+    `<option value="${esc(o.value)}" ${o.value === selected ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+}
+
+// ==================================================
+//  설정(온보딩/수정) 뷰
+// ==================================================
+function viewSetup(mode) {
+  const p = (store.state && store.state.profile) || {};
+  const g = (store.state && store.state.goals) || {};
+  const defStart = (store.meta && store.meta.defaultStartDate) || todayISO();
+  const muscleOpts = (store.meta && store.meta.muscleOptions) || [];
+  const focus = g.focusMuscles || [];
+
+  return `
+  <section class="setup">
+    <h1>${mode === 'onboard' ? '시작하기 — 내 정보 입력' : '프로필 · 목표 수정'}</h1>
+    <p class="lead">${mode === 'onboard'
+      ? '입력한 정보를 분석해 요일별 맞춤 루틴을 만들어 드려요. 나중에 언제든 바꿀 수 있습니다.'
+      : '값을 바꾼 뒤 저장하세요. 루틴을 새로 반영하려면 루틴 탭에서 “다시 생성”을 누르세요.'}</p>
+
+    <div class="card">
+      <h2>1. 프로필</h2>
+      <div class="grid2">
+        <label>이름(선택)<input id="f-name" value="${esc(p.name || '')}" placeholder="예: 종우"></label>
+        <label>성별
+          <select id="f-sex">
+            <option value="" ${!p.sex ? 'selected' : ''}>선택 안 함</option>
+            <option value="남" ${p.sex === '남' ? 'selected' : ''}>남</option>
+            <option value="여" ${p.sex === '여' ? 'selected' : ''}>여</option>
+          </select></label>
+        <label>나이<input id="f-age" type="number" inputmode="numeric" value="${p.age ?? ''}" placeholder="세"></label>
+        <label>키(cm)<input id="f-height" type="number" inputmode="decimal" value="${p.heightCm ?? ''}" placeholder="cm"></label>
+        <label>몸무게(kg)<input id="f-weight" type="number" inputmode="decimal" value="${p.weightKg ?? ''}" placeholder="kg"></label>
+        <label>운동 경력${selectHtml('f-exp', 'experiences', p.experience || 'beginner')}</label>
+        <label>주당 운동일수
+          <select id="f-days">${(store.meta.daysOptions || [3]).map((d) =>
+            `<option value="${d}" ${p.daysPerWeek === d ? 'selected' : ''}>${d}일</option>`).join('')}</select></label>
+        <label>1회 세션 시간(분)<input id="f-minutes" type="number" inputmode="numeric" value="${p.sessionMinutes ?? 60}"></label>
+        <label>사용 장비${selectHtml('f-equip', 'equipments', p.equipment || 'full_gym')}</label>
+        <label>프로그램 시작일<input id="f-start" type="date" value="${esc(p.startDate || defStart)}"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. 목표 · 세부 설정</h2>
+      <div class="grid2">
+        <label>주 목표${selectHtml('f-goal', 'goals', g.primaryGoal || 'hypertrophy')}</label>
+        <label>분할 방식${selectHtml('f-split', 'splits', g.split || 'auto')}</label>
+        <label>진행 속도${selectHtml('f-prog', 'progressions', g.progression || 'standard')}</label>
+      </div>
+      <div class="field">
+        <span class="field-label">집중 근육 (최대 3개, 선택)</span>
+        <div class="chips" id="f-focus">
+          ${muscleOpts.map((o) => `<label class="chip"><input type="checkbox" value="${o.value}" ${focus.includes(o.value) ? 'checked' : ''}>${esc(o.label)}</label>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="setup-save" class="primary">${mode === 'onboard' ? '분석하고 루틴 만들기 →' : '저장'}</button>
+      ${mode === 'edit' ? '<button id="setup-cancel" class="ghost">취소</button>' : ''}
+    </div>
+  </section>`;
+}
+
+function wireSetup(mode) {
+  // 집중 근육 최대 3개 제한
+  const focusBox = qs('#f-focus');
+  focusBox.addEventListener('change', () => {
+    const checked = qsa('input:checked', focusBox);
+    if (checked.length > 3) { checked[checked.length - 1].checked = false; toast('집중 근육은 최대 3개까지예요.', 'error'); }
+  });
+
+  qs('#setup-save').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const profile = {
+      name: qs('#f-name').value.trim(),
+      sex: qs('#f-sex').value,
+      age: qs('#f-age').value,
+      heightCm: qs('#f-height').value,
+      weightKg: qs('#f-weight').value,
+      experience: qs('#f-exp').value,
+      daysPerWeek: Number(qs('#f-days').value),
+      sessionMinutes: qs('#f-minutes').value,
+      equipment: qs('#f-equip').value,
+      startDate: qs('#f-start').value,
+    };
+    const goals = {
+      primaryGoal: qs('#f-goal').value,
+      split: qs('#f-split').value,
+      progression: qs('#f-prog').value,
+      focusMuscles: qsa('#f-focus input:checked').map((c) => c.value),
+    };
+    btn.disabled = true; btn.textContent = '저장 중…';
+    try {
+      await api.saveProfile(profile);
+      await api.saveGoals(goals);
+      const hadRoutine = !!store.state.routine;
+      if (mode === 'onboard' || !hadRoutine) {
+        await api.generate(false);
+        toast('루틴이 생성되었어요! 💪', 'success');
+        location.hash = '#routine';
+        if (location.hash === '#routine') render();
+      } else {
+        toast('저장되었어요. 루틴 탭에서 “다시 생성”으로 반영하세요.', 'success');
+        location.hash = '#settings';
+      }
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false; btn.textContent = '저장';
+    }
+  });
+
+  const cancel = qs('#setup-cancel');
+  if (cancel) cancel.addEventListener('click', () => { location.hash = '#settings'; });
+}
+
+// ==================================================
+//  대시보드
+// ==================================================
+function viewDashboard() {
+  const s = store.state;
+  const p = s.profile, g = s.goals, r = s.routine;
+  const name = p.name ? `${esc(p.name)}님, ` : '';
+  const tk = todayKey();
+
+  let todayCard = '';
+  if (r) {
+    const d = r.days[tk];
+    const date = fmtDate(dayDate(r.startDate, tk));
+    if (d && d.type === 'workout') {
+      todayCard = `<div class="card today">
+        <div class="card-eyebrow">오늘 · ${date}</div>
+        <h2>${esc(d.label)}</h2>
+        <div class="focus-tags">${d.focus.map((f) => `<span>${esc(f)}</span>`).join('')}</div>
+        <p class="muted">${d.exercises.length}개 운동 · 약 ${d.estMinutes || '-'}분</p>
+        <button class="primary" data-go="log" data-day="${tk}">오늘 운동 기록하기 →</button>
+      </div>`;
+    } else {
+      todayCard = `<div class="card today rest">
+        <div class="card-eyebrow">오늘 · ${date}</div>
+        <h2>휴식일 😌</h2>
+        <p class="muted">회복도 훈련의 일부예요. 가벼운 스트레칭이나 걷기를 추천해요.</p>
+      </div>`;
+    }
+  }
+
+  // 이번 주 그리드
+  let weekGrid = '';
+  if (r) {
+    weekGrid = `<div class="card">
+      <div class="card-eyebrow">${r.weekNumber}주차 · ${fmtDate(r.startDate)} 시작 · ${splitLabel(r.split)}</div>
+      <h2>이번 주 계획</h2>
+      <div class="week-grid">
+        ${WEEKDAYS.map((wd) => {
+          const d = r.days[wd];
+          const done = dayDone(r.weekNumber, wd);
+          const isToday = wd === tk;
+          const cls = d.type === 'workout' ? 'workout' : 'rest';
+          return `<button class="week-cell ${cls} ${done ? 'done' : ''} ${isToday ? 'today' : ''}" data-go="routine">
+            <span class="wc-day">${dayLabel(wd)}</span>
+            <span class="wc-label">${d.type === 'workout' ? esc(shortLabel(d.label)) : '휴식'}</span>
+            ${done ? '<span class="wc-check">✓</span>' : ''}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  // 지난주 조정 요약
+  let adjustCard = '';
+  const lastHist = s.history && s.history.length ? s.history[s.history.length - 1] : null;
+  if (lastHist && lastHist.summary) {
+    const sm = lastHist.summary;
+    adjustCard = `<div class="card">
+      <div class="card-eyebrow">지난주 → 이번주 자동 조정</div>
+      <h2>달성률 ${sm.adherence}%</h2>
+      <div class="stat-row">
+        <div class="stat up"><b>${sm.counts.up}</b><span>증량</span></div>
+        <div class="stat hold"><b>${sm.counts.hold}</b><span>유지</span></div>
+        <div class="stat down"><b>${sm.counts.down}</b><span>감량</span></div>
+      </div>
+      ${sm.volumeDeltaPct != null ? `<p class="muted">총 볼륨 목표 ${sm.volumeDeltaPct >= 0 ? '+' : ''}${sm.volumeDeltaPct}% 조정</p>` : ''}
+    </div>`;
+  }
+
+  // 최근 체성분
+  let bodyCard = '';
+  if (s.body && s.body.length) {
+    const b = s.body[s.body.length - 1];
+    bodyCard = `<div class="card">
+      <div class="card-eyebrow">최근 체성분 · ${fmtDate(b.date)}</div>
+      <div class="stat-row">
+        <div class="stat"><b>${b.weightKg ?? '-'}</b><span>체중 kg</span></div>
+        <div class="stat"><b>${b.skeletalMuscleKg ?? '-'}</b><span>골격근 kg</span></div>
+        <div class="stat"><b>${b.bodyFatPct ?? '-'}</b><span>체지방 %</span></div>
+      </div>
+      <button class="ghost" data-go="body">추이 보기 →</button>
+    </div>`;
+  }
+
+  return `
+  <section class="dash">
+    <h1>${name}오늘도 화이팅! 🔥</h1>
+    <p class="lead">${goalLabel(g.primaryGoal)} · 주 ${p.daysPerWeek}회 · ${optLabel('experiences', p.experience)}</p>
+    ${todayCard}
+    ${weekGrid}
+    <div class="grid2">
+      ${adjustCard}
+      ${bodyCard}
+    </div>
+    <div class="card cta">
+      <h2>주가 끝났나요?</h2>
+      <p class="muted">이번 주 기록을 바탕으로 다음 주 목표(무게·반복)를 자동으로 조정해 드려요.</p>
+      <button id="btn-nextweek" class="primary">다음 주 루틴 생성 →</button>
+    </div>
+  </section>`;
+}
+
+function wireDashboard() {
+  qsa('[data-go]').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.day) logDay = b.dataset.day;
+    location.hash = '#' + b.dataset.go;
+  }));
+  const nw = qs('#btn-nextweek');
+  if (nw) nw.addEventListener('click', () => doNextWeek(nw));
+}
+
+async function doNextWeek(btn) {
+  if (!confirm('이번 주를 마감하고 다음 주 루틴을 생성할까요?\n기록을 바탕으로 목표가 조정됩니다.')) return;
+  btn.disabled = true; btn.textContent = '생성 중…';
+  try {
+    const res = await api.nextWeek();
+    pendingAdjust = { changes: res.changes, summary: res.summary, week: res.summary.nextWeek };
+    toast('다음 주 루틴이 준비됐어요!', 'success');
+    location.hash = '#routine';
+    if (location.hash === '#routine') render();
+  } catch (e) {
+    toast(e.message, 'error');
+    btn.disabled = false; btn.textContent = '다음 주 루틴 생성 →';
+  }
+}
+
+// ==================================================
+//  루틴 뷰
+// ==================================================
+function viewRoutine() {
+  const s = store.state;
+  const r = s.routine;
+  if (!r) return `<section><div class="card"><p>아직 루틴이 없습니다. 설정에서 정보를 입력하세요.</p></div></section>`;
+
+  const methodBadge = { algorithm: '내장 알고리즘', progression: '자동 조정', ai: 'AI 다듬음' }[r.method] || r.method;
+
+  let adjustBanner = '';
+  if (pendingAdjust && pendingAdjust.week === r.weekNumber) {
+    adjustBanner = renderAdjustBanner(pendingAdjust);
+  }
+
+  let aiNote = '';
+  if (r.method === 'ai' && r.aiNotes) {
+    aiNote = `<div class="card ai-note"><div class="card-eyebrow">🤖 AI 코멘트</div><p>${esc(r.aiNotes)}</p></div>`;
+  }
+
+  const days = WEEKDAYS.map((wd) => renderDayCard(r, wd)).join('');
+
+  return `
+  <section class="routine">
+    <div class="page-head">
+      <div>
+        <h1>${r.weekNumber}주차 루틴</h1>
+        <p class="lead">${fmtDate(r.startDate)} 시작 · ${splitLabel(r.split)} · <span class="badge">${methodBadge}</span></p>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button id="btn-regen" class="ghost">🔀 다시 생성</button>
+      <button id="btn-ai" class="ghost">🤖 AI로 다듬기</button>
+      <button id="btn-next" class="primary">다음 주 →</button>
+    </div>
+    ${adjustBanner}
+    ${aiNote}
+    <div class="day-list">${days}</div>
+  </section>`;
+}
+
+function renderDayCard(r, wd) {
+  const d = r.days[wd];
+  const date = fmtDate(dayDate(r.startDate, wd));
+  if (!d || d.type !== 'workout') {
+    return `<div class="day-card rest"><div class="day-head"><span class="daybadge">${dayLabel(wd)} · ${date}</span><h3>휴식</h3></div></div>`;
+  }
+  const done = dayDone(r.weekNumber, wd);
+  const rows = d.exercises.map((ex) => `
+    <tr>
+      <td class="ex-name">${esc(ex.name)}<span class="ex-muscle">${esc(ex.muscleLabel || '')}</span></td>
+      <td class="num">${ex.sets} × ${ex.repMin}-${ex.repMax}</td>
+      <td class="num muted">${ex.restSec}s</td>
+      <td class="num">${weightText(ex)}</td>
+    </tr>`).join('');
+
+  return `<div class="day-card workout ${done ? 'done' : ''}">
+    <div class="day-head">
+      <span class="daybadge">${dayLabel(wd)} · ${date}</span>
+      <h3>${esc(d.label)}</h3>
+      <span class="muted small">~${d.estMinutes || '-'}분${done ? ' · ✅ 완료' : ''}</span>
+    </div>
+    <div class="focus-tags">${(d.focus || []).map((f) => `<span>${esc(f)}</span>`).join('')}</div>
+    <table class="ex-table">
+      <thead><tr><th>운동</th><th class="num">세트×횟수</th><th class="num">휴식</th><th class="num">목표무게</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <button class="ghost sm" data-log="${wd}">✏️ 이 운동 기록하기</button>
+  </div>`;
+}
+
+function renderAdjustBanner(pa) {
+  const sm = pa.summary;
+  const rows = pa.changes.filter((c) => c.type !== 'hold' || c.toWeight != null).slice(0, 40).map((c) => {
+    const arrow = c.type === 'up' ? '▲' : c.type === 'down' ? '▼' : '→';
+    return `<tr class="chg-${c.type}">
+      <td>${dayLabel(c.dayKey)}</td>
+      <td>${esc(c.name)}</td>
+      <td class="num">${changeText(c)}</td>
+      <td class="reason">${arrow} ${esc(c.reason)}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="card adjust-banner">
+    <div class="card-eyebrow">${sm.prevWeek}주차 기록 반영 · 달성률 ${sm.adherence}%</div>
+    <h2>이번 주 조정 내역</h2>
+    <div class="stat-row">
+      <div class="stat up"><b>${sm.counts.up}</b><span>증량</span></div>
+      <div class="stat hold"><b>${sm.counts.hold}</b><span>유지</span></div>
+      <div class="stat down"><b>${sm.counts.down}</b><span>감량</span></div>
+    </div>
+    <details><summary>운동별 변경 자세히 보기</summary>
+      <table class="chg-table"><tbody>${rows || '<tr><td>변경 사항 없음</td></tr>'}</tbody></table>
+    </details>
+    <button class="ghost sm" id="dismiss-adjust">닫기</button>
+  </div>`;
+}
+
+function changeText(c) {
+  const w = (v) => (v == null ? '자유' : v + 'kg');
+  if (c.type === 'up' && c.fromWeight != null && c.toWeight != null && c.fromWeight !== c.toWeight)
+    return `${w(c.fromWeight)} → ${w(c.toWeight)}`;
+  if (c.type === 'down') return `${w(c.fromWeight)} → ${w(c.toWeight)}`;
+  if (c.fromReps[1] !== c.toReps[1]) return `${c.toReps[0]}-${c.toReps[1]}회`;
+  return w(c.toWeight);
+}
+
+function wireRoutine() {
+  qs('#btn-regen') && qs('#btn-regen').addEventListener('click', async (e) => {
+    if (!confirm('현재 주 루틴을 새로 생성할까요? (운동 구성이 바뀔 수 있어요)')) return;
+    e.currentTarget.disabled = true; e.currentTarget.textContent = '생성 중…';
+    try { await api.generate(true); pendingAdjust = null; render(); toast('새 루틴을 만들었어요.', 'success'); }
+    catch (err) { toast(err.message, 'error'); render(); }
+  });
+
+  qs('#btn-ai') && qs('#btn-ai').addEventListener('click', async (e) => {
+    if (!store.state.settings.hasApiKey) {
+      toast('먼저 설정에서 Claude API 키를 입력하세요.', 'error');
+      location.hash = '#settings'; return;
+    }
+    const btn = e.currentTarget;
+    btn.disabled = true; btn.textContent = '🤖 다듬는 중… (최대 1~2분)';
+    document.body.classList.add('busy');
+    try {
+      await api.aiRefine();
+      pendingAdjust = null;
+      toast('AI가 루틴을 다듬었어요!', 'success');
+      render();
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false; btn.textContent = '🤖 AI로 다듬기';
+    } finally {
+      document.body.classList.remove('busy');
+    }
+  });
+
+  qs('#btn-next') && qs('#btn-next').addEventListener('click', (e) => doNextWeek(e.currentTarget));
+
+  qsa('[data-log]').forEach((b) => b.addEventListener('click', () => {
+    logDay = b.dataset.log; location.hash = '#log';
+  }));
+
+  const dis = qs('#dismiss-adjust');
+  if (dis) dis.addEventListener('click', () => { pendingAdjust = null; render(); });
+}
+
+// ==================================================
+//  기록 뷰
+// ==================================================
+function viewLog() {
+  const s = store.state;
+  const r = s.routine;
+  if (!r) return `<section><div class="card"><p>먼저 루틴을 생성하세요.</p></div></section>`;
+
+  const workoutDays = WEEKDAYS.filter((wd) => r.days[wd].type === 'workout');
+  if (!workoutDays.includes(logDay)) {
+    logDay = workoutDays.includes(todayKey()) ? todayKey() : workoutDays[0];
+  }
+  if (!logDay) return `<section><div class="card"><p>이번 주에 운동일이 없습니다.</p></div></section>`;
+
+  const selector = `<div class="day-tabs">${workoutDays.map((wd) => {
+    const done = dayDone(r.weekNumber, wd);
+    return `<button class="day-tab ${wd === logDay ? 'active' : ''} ${done ? 'done' : ''}" data-day="${wd}">
+      ${dayLabel(wd)}${done ? ' ✓' : ''}</button>`;
+  }).join('')}</div>`;
+
+  const d = r.days[logDay];
+  const existing = s.logs[`${r.weekNumber}:${logDay}`];
+  const byId = {};
+  if (existing) for (const le of existing.exercises) byId[le.id] = le;
+
+  const exBlocks = d.exercises.map((ex, exi) => {
+    const prev = byId[ex.id];
+    const rows = [];
+    for (let si = 0; si < ex.sets; si++) {
+      const ps = prev && prev.sets && prev.sets[si] ? prev.sets[si] : null;
+      const wDefault = ps && ps.weight != null ? ps.weight : (ex.weightKg != null ? ex.weightKg : '');
+      const rVal = ps && ps.reps != null ? ps.reps : '';
+      const checked = ps && ps.done ? 'checked' : '';
+      rows.push(`<tr>
+        <td class="setno">${si + 1}</td>
+        <td class="target">${ex.repMax}회 ${ex.weightKg != null ? '@' + ex.weightKg + 'kg' : ''}</td>
+        <td><input class="in-reps" data-ex="${exi}" data-set="${si}" type="number" inputmode="numeric" value="${rVal}" placeholder="${ex.repMax}"></td>
+        <td><input class="in-weight" data-ex="${exi}" data-set="${si}" type="number" inputmode="decimal" value="${wDefault}" placeholder="${ex.bodyweight ? '자중' : 'kg'}"></td>
+        <td><input class="in-done" data-ex="${exi}" data-set="${si}" type="checkbox" ${checked}></td>
+      </tr>`);
+    }
+    return `<div class="log-ex" data-exid="${esc(ex.id)}" data-name="${esc(ex.name)}" data-kind="${ex.kind}" data-sets="${ex.sets}" data-repmin="${ex.repMin}" data-repmax="${ex.repMax}">
+      <div class="log-ex-head"><b>${esc(ex.name)}</b> <span class="muted small">${ex.sets}세트 × ${ex.repMin}-${ex.repMax}회 · ${esc(ex.muscleLabel || '')}</span></div>
+      <table class="log-table">
+        <thead><tr><th>세트</th><th>목표</th><th>반복</th><th>무게(kg)</th><th>완료</th></tr></thead>
+        <tbody>${rows.join('')}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  const date = fmtDate(dayDate(r.startDate, logDay));
+  return `
+  <section class="logview">
+    <div class="page-head"><h1>운동 기록</h1><p class="lead">${r.weekNumber}주차</p></div>
+    ${selector}
+    <div class="card">
+      <div class="card-eyebrow">${dayLabel(logDay)} · ${date}</div>
+      <h2>${esc(d.label)}</h2>
+      <p class="muted small">각 세트의 실제 반복수와 무게를 입력하세요. 빈칸은 미수행으로 기록됩니다.</p>
+      ${exBlocks}
+      <label class="note-field">메모<textarea id="log-note" placeholder="컨디션, 통증, 특이사항 등">${esc(existing ? existing.note : '')}</textarea></label>
+      <div class="actions">
+        <button id="log-fill" class="ghost">목표대로 전부 채우기</button>
+        <button id="log-save" class="primary">기록 저장</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+function wireLog() {
+  qsa('.day-tab').forEach((b) => b.addEventListener('click', () => { logDay = b.dataset.day; render(); }));
+
+  const fill = qs('#log-fill');
+  if (fill) fill.addEventListener('click', () => {
+    qsa('.log-ex').forEach((block) => {
+      const repMax = block.dataset.repmax;
+      qsa('.in-reps', block).forEach((inp) => { if (!inp.value) inp.value = repMax; });
+      qsa('.in-done', block).forEach((inp) => { inp.checked = true; });
+    });
+    toast('목표대로 채웠어요. 실제와 다르면 수정하세요.');
+  });
+
+  const save = qs('#log-save');
+  if (save) save.addEventListener('click', async (e) => {
+    const r = store.state.routine;
+    const exercises = qsa('.log-ex').map((block) => {
+      const nSets = Number(block.dataset.sets);
+      const sets = [];
+      for (let si = 0; si < nSets; si++) {
+        const reps = qs(`.in-reps[data-set="${si}"]`, block);
+        const weight = qs(`.in-weight[data-set="${si}"]`, block);
+        const done = qs(`.in-done[data-set="${si}"]`, block);
+        sets.push({ reps: reps.value, weight: weight.value, done: done.checked });
+      }
+      return {
+        id: block.dataset.exid,
+        name: block.dataset.name,
+        kind: block.dataset.kind,
+        targetSets: nSets,
+        repMin: Number(block.dataset.repmin),
+        repMax: Number(block.dataset.repmax),
+        sets,
+      };
+    });
+    e.currentTarget.disabled = true; e.currentTarget.textContent = '저장 중…';
+    try {
+      await api.saveLog({ weekNumber: r.weekNumber, dayKey: logDay, note: qs('#log-note').value, exercises });
+      const doneSets = exercises.reduce((a, ex) => a + ex.sets.filter((s) => Number(s.reps) > 0).length, 0);
+      const totalSets = exercises.reduce((a, ex) => a + ex.sets.length, 0);
+      toast(`저장 완료 · ${doneSets}/${totalSets} 세트 수행`, 'success');
+      render();
+    } catch (err) {
+      toast(err.message, 'error');
+      e.currentTarget.disabled = false; e.currentTarget.textContent = '기록 저장';
+    }
+  });
+}
+
+// ==================================================
+//  체성분 뷰
+// ==================================================
+function viewBody() {
+  const s = store.state;
+  const body = s.body || [];
+  const metrics = [
+    { key: 'weightKg', label: '체중(kg)', color: '#e2703a' },
+    { key: 'skeletalMuscleKg', label: '골격근량(kg)', color: '#3a86c8' },
+    { key: 'bodyFatPct', label: '체지방률(%)', color: '#6b8e23' },
+  ];
+  const m = metrics.find((x) => x.key === bodyMetric) || metrics[0];
+  const labels = body.map((b) => fmtDate(b.date));
+  const values = body.map((b) => b[m.key]);
+
+  const rows = body.slice().reverse().map((b) => `
+    <tr>
+      <td>${fmtDate(b.date)}</td>
+      <td class="num">${b.weightKg ?? '-'}</td>
+      <td class="num">${b.skeletalMuscleKg ?? '-'}</td>
+      <td class="num">${b.bodyFatPct ?? '-'}</td>
+      <td>${esc(b.note || '')}</td>
+      <td><button class="link-del" data-del="${esc(b.date)}">삭제</button></td>
+    </tr>`).join('');
+
+  return `
+  <section class="bodyview">
+    <div class="page-head"><h1>체성분 추이</h1><p class="lead">인바디 측정값을 입력하면 변화를 추적하고 루틴 강도에 참고해요.</p></div>
+
+    <div class="card">
+      <h2>측정값 입력</h2>
+      <div class="grid2">
+        <label>날짜<input id="b-date" type="date" value="${todayISO()}"></label>
+        <label>체중(kg)<input id="b-weight" type="number" inputmode="decimal" placeholder="kg"></label>
+        <label>골격근량(kg)<input id="b-muscle" type="number" inputmode="decimal" placeholder="kg"></label>
+        <label>체지방률(%)<input id="b-fat" type="number" inputmode="decimal" placeholder="%"></label>
+      </div>
+      <label class="note-field">메모<input id="b-note" placeholder="선택"></label>
+      <div class="hint">💡 인바디 자동 연동은 공개 API가 없어 지원되지 않아요. 측정 후 값을 직접 입력하면 됩니다.</div>
+      <div class="actions"><button id="b-save" class="primary">저장</button></div>
+    </div>
+
+    <div class="card">
+      <div class="metric-tabs">
+        ${metrics.map((x) => `<button class="metric-tab ${x.key === bodyMetric ? 'active' : ''}" data-metric="${x.key}">${x.label}</button>`).join('')}
+      </div>
+      ${lineChart(labels, values, { unit: m.key === 'bodyFatPct' ? '%' : 'kg', color: m.color })}
+    </div>
+
+    <div class="card">
+      <h2>기록 (${body.length})</h2>
+      <div class="table-scroll">
+        <table class="body-table">
+          <thead><tr><th>날짜</th><th class="num">체중</th><th class="num">골격근</th><th class="num">체지방%</th><th>메모</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="6" class="muted">아직 기록이 없어요.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+  </section>`;
+}
+
+function wireBody() {
+  qsa('.metric-tab').forEach((b) => b.addEventListener('click', () => { bodyMetric = b.dataset.metric; render(); }));
+  qs('#b-save').addEventListener('click', async (e) => {
+    const payload = {
+      date: qs('#b-date').value,
+      weightKg: qs('#b-weight').value,
+      skeletalMuscleKg: qs('#b-muscle').value,
+      bodyFatPct: qs('#b-fat').value,
+      note: qs('#b-note').value,
+    };
+    if (!payload.date) { toast('날짜를 입력하세요.', 'error'); return; }
+    e.currentTarget.disabled = true;
+    try { await api.saveBody(payload); toast('저장했어요.', 'success'); render(); }
+    catch (err) { toast(err.message, 'error'); e.currentTarget.disabled = false; }
+  });
+  qsa('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('이 기록을 삭제할까요?')) return;
+    try { await api.deleteBody(b.dataset.del); render(); } catch (err) { toast(err.message, 'error'); }
+  }));
+}
+
+// ==================================================
+//  설정 뷰
+// ==================================================
+function viewSettings() {
+  const s = store.state;
+  const p = s.profile, g = s.goals, set = s.settings;
+  return `
+  <section class="settings">
+    <div class="page-head"><h1>설정</h1></div>
+
+    <div class="card">
+      <h2>프로필 · 목표</h2>
+      <div class="kv">
+        <div><span>경력</span><b>${optLabel('experiences', p.experience)}</b></div>
+        <div><span>주당</span><b>${p.daysPerWeek}일 · ${p.sessionMinutes}분</b></div>
+        <div><span>장비</span><b>${optLabel('equipments', p.equipment)}</b></div>
+        <div><span>목표</span><b>${goalLabel(g.primaryGoal)}</b></div>
+        <div><span>분할</span><b>${splitLabel(g.split)}</b></div>
+        <div><span>진행</span><b>${optLabel('progressions', g.progression)}</b></div>
+        <div><span>집중</span><b>${(g.focusMuscles || []).map((mm) => optLabel('muscleOptions', mm)).join(', ') || '없음'}</b></div>
+        <div><span>시작일</span><b>${esc(p.startDate || '-')}</b></div>
+      </div>
+      <div class="actions"><button class="ghost" id="edit-setup">프로필 · 목표 수정</button></div>
+    </div>
+
+    <div class="card">
+      <h2>🤖 Claude AI 연동</h2>
+      <p class="muted small">AI로 루틴을 다듬으려면 Anthropic API 키가 필요해요. 키는 <b>이 브라우저(localStorage)에만</b> 저장되고, 사용할 때만 Anthropic 서버로 직접 전송됩니다. 공용 PC에서는 입력을 피하세요.</p>
+      <label class="check"><input type="checkbox" id="set-useai" ${set.useAI ? 'checked' : ''}> AI 다듬기 기능 사용</label>
+      <label>API 키
+        <input id="set-key" type="password" placeholder="${set.hasApiKey ? '●●●●●●●● (저장됨 — 바꾸려면 새로 입력)' : 'sk-ant-...'}" autocomplete="off">
+      </label>
+      <label>모델
+        <select id="set-model">
+          <option value="claude-opus-4-8" ${set.model === 'claude-opus-4-8' ? 'selected' : ''}>Claude Opus 4.8 (최고 성능)</option>
+          <option value="claude-sonnet-4-6" ${set.model === 'claude-sonnet-4-6' ? 'selected' : ''}>Claude Sonnet 4.6 (빠름·저렴)</option>
+          <option value="claude-haiku-4-5" ${set.model === 'claude-haiku-4-5' ? 'selected' : ''}>Claude Haiku 4.5 (가장 저렴)</option>
+        </select>
+      </label>
+      <div class="hint">상태: ${set.hasApiKey ? '<b class="ok">키 있음 ✓</b>' : '<b class="warn">키 없음</b>'} · 키 없이도 내장 알고리즘 루틴은 그대로 사용할 수 있어요.</div>
+      <div class="actions"><button id="set-save" class="primary">저장</button></div>
+    </div>
+
+    <div class="card danger-zone">
+      <h2>데이터</h2>
+      <p class="muted small">모든 데이터는 이 <b>브라우저(localStorage)</b>에 저장됩니다. 다른 기기로 옮기려면 내보내기 후 그 기기에서 가져오기 하세요.</p>
+      <div class="actions">
+        <button id="data-export" class="ghost">데이터 내보내기(JSON)</button>
+        <label class="btn ghost import-label">데이터 가져오기<input id="data-import" type="file" accept="application/json" hidden></label>
+        <button id="data-reset" class="danger">전체 초기화</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+function wireSettings() {
+  qs('#edit-setup').addEventListener('click', () => { location.hash = '#setup'; });
+
+  qs('#set-save').addEventListener('click', async (e) => {
+    const payload = { useAI: qs('#set-useai').checked, model: qs('#set-model').value };
+    const key = qs('#set-key').value;
+    if (key) payload.apiKey = key;
+    e.currentTarget.disabled = true;
+    try { await api.saveSettings(payload); toast('설정을 저장했어요.', 'success'); render(); }
+    catch (err) { toast(err.message, 'error'); e.currentTarget.disabled = false; }
+  });
+
+  qs('#data-export').addEventListener('click', () => {
+    const blob = new Blob([api.exportJson()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workout-data-${todayISO()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('데이터를 내보냈어요.', 'success');
+  });
+
+  qs('#data-import').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!confirm('가져오면 현재 데이터를 덮어씁니다. 계속할까요?')) { e.target.value = ''; return; }
+    try {
+      const text = await file.text();
+      await api.importData(JSON.parse(text));
+      toast('데이터를 가져왔어요.', 'success');
+      location.hash = '#dashboard'; render();
+    } catch (err) {
+      toast('가져오기 실패: ' + err.message, 'error');
+    }
+    e.target.value = '';
+  });
+
+  qs('#data-reset').addEventListener('click', async () => {
+    if (!confirm('정말 모든 데이터를 삭제할까요? 되돌릴 수 없습니다.')) return;
+    if (!confirm('마지막 확인: 프로필·루틴·기록·체성분이 모두 사라집니다.')) return;
+    try { await api.reset(); toast('초기화했어요.'); location.hash = '#dashboard'; render(); }
+    catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+// ---------- 소소한 라벨 헬퍼 ----------
+function goalLabel(v) { return (store.meta.goalLabels && store.meta.goalLabels[v]) || v; }
+function dayLabel(wd) { return (store.meta.weekdayLabels && store.meta.weekdayLabels[wd]) || wd; }
+function splitLabel(v) { return optLabel('splits', v); }
+function shortLabel(label) { return String(label).split('(')[0]; }
+
+function dayDone(week, wd) {
+  const l = store.state.logs[`${week}:${wd}`];
+  if (!l || !l.exercises) return false;
+  return l.exercises.some((ex) => (ex.sets || []).some((s) => Number(s.reps) > 0));
+}
+
+function weightText(ex) {
+  if (ex.bodyweight) return ex.weightKg ? `자중+${ex.weightKg}kg` : '자중';
+  if (ex.weightKg == null) return '<span class="muted">적정무게 탐색</span>';
+  return `${ex.weightKg}kg`;
+}

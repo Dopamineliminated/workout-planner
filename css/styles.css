@@ -1,0 +1,234 @@
+/* 헬스 루틴 플래너 스타일 — 라이트/다크 자동, 모바일 우선. */
+:root {
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --surface-2: #faf9f6;
+  --text: #23201c;
+  --muted: #7c766c;
+  --border: #e7e3da;
+  --accent: #e2703a;
+  --accent-weak: #fbe9df;
+  --up: #2f9e57;
+  --down: #d1495b;
+  --hold: #b0a99c;
+  --radius: 14px;
+  --shadow: 0 1px 3px rgba(0,0,0,.05), 0 6px 20px rgba(0,0,0,.04);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17150f;
+    --surface: #221f18;
+    --surface-2: #1c1a14;
+    --text: #ece7dd;
+    --muted: #9b9384;
+    --border: #33302a;
+    --accent: #ef8a54;
+    --accent-weak: #3a2a1e;
+    --shadow: 0 1px 3px rgba(0,0,0,.3), 0 6px 22px rgba(0,0,0,.35);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+body.busy { cursor: progress; }
+
+h1 { font-size: 1.6rem; margin: 0 0 .2em; letter-spacing: -.02em; }
+h2 { font-size: 1.15rem; margin: 0 0 .5em; letter-spacing: -.01em; }
+h3 { font-size: 1rem; margin: 0; }
+p { margin: .3em 0; }
+.lead { color: var(--muted); margin-bottom: 1rem; }
+.muted { color: var(--muted); }
+.small { font-size: .85rem; }
+code { background: var(--surface-2); padding: .1em .4em; border-radius: 6px; font-size: .85em; }
+
+/* ---- 레이아웃 ---- */
+.loading { display: flex; align-items: center; justify-content: center; height: 100vh; color: var(--muted); }
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 1rem;
+  padding: .6rem clamp(.8rem, 3vw, 2rem);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 800; letter-spacing: -.02em; white-space: nowrap; }
+#nav { display: flex; gap: .2rem; margin-left: auto; flex-wrap: wrap; }
+#nav button {
+  border: none; background: transparent; color: var(--muted);
+  font: inherit; font-size: .92rem; font-weight: 600;
+  padding: .45rem .7rem; border-radius: 10px; cursor: pointer;
+}
+#nav button:hover { background: var(--surface-2); color: var(--text); }
+#nav button.active { background: var(--accent-weak); color: var(--accent); }
+
+main#app { max-width: 860px; margin: 0 auto; padding: clamp(1rem, 3vw, 2rem) clamp(.8rem, 3vw, 2rem) 5rem; }
+
+/* ---- 카드 ---- */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.1rem; margin-bottom: 1rem;
+  box-shadow: var(--shadow);
+}
+.card-eyebrow { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); margin-bottom: .3rem; }
+.page-head { margin-bottom: 1rem; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .8rem; }
+
+/* ---- 폼 ---- */
+label { display: flex; flex-direction: column; gap: .3rem; font-size: .85rem; font-weight: 600; color: var(--muted); }
+input, select, textarea {
+  font: inherit; font-size: .95rem; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: .55rem .6rem; width: 100%;
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+textarea { min-height: 60px; resize: vertical; }
+.field { margin-top: .8rem; }
+.field-label { display: block; font-size: .85rem; font-weight: 600; color: var(--muted); margin-bottom: .4rem; }
+.note-field { margin-top: .8rem; }
+.check { flex-direction: row; align-items: center; gap: .5rem; color: var(--text); font-weight: 600; margin: .5rem 0; }
+.check input { width: auto; }
+.hint { font-size: .82rem; color: var(--muted); margin-top: .6rem; background: var(--surface-2); padding: .5rem .7rem; border-radius: 8px; }
+.hint .ok { color: var(--up); } .hint .warn { color: var(--down); }
+
+/* 집중 근육 칩 */
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chip {
+  flex-direction: row; align-items: center; gap: .35rem;
+  padding: .4rem .7rem; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface-2); cursor: pointer; font-size: .85rem; font-weight: 600; color: var(--text);
+}
+.chip input { width: auto; }
+.chip:has(input:checked) { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); }
+
+/* ---- 버튼 ---- */
+button, .btn {
+  font: inherit; font-weight: 700; cursor: pointer;
+  border-radius: 10px; padding: .6rem 1rem; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); transition: transform .05s;
+}
+button:active { transform: translateY(1px); }
+button:disabled { opacity: .6; cursor: default; }
+.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.primary:hover { filter: brightness(1.05); }
+.ghost { background: transparent; }
+.ghost:hover { background: var(--surface-2); }
+.danger { background: transparent; color: var(--down); border-color: var(--down); }
+button.sm { padding: .4rem .7rem; font-size: .85rem; }
+.actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; align-items: center; }
+.toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+a.btn { text-decoration: none; display: inline-block; }
+.import-label { display: inline-flex; align-items: center; width: auto; cursor: pointer; }
+.badge { display: inline-block; background: var(--accent-weak); color: var(--accent); font-size: .78rem; font-weight: 700; padding: .12rem .5rem; border-radius: 6px; }
+
+/* ---- 셋업 ---- */
+.setup h1 { margin-bottom: .3rem; }
+
+/* ---- 대시보드 ---- */
+.card.today h2 { font-size: 1.35rem; }
+.card.today.rest { background: var(--surface-2); }
+.stat-row { display: flex; gap: 1.2rem; margin: .6rem 0; flex-wrap: wrap; }
+.stat { display: flex; flex-direction: column; }
+.stat b { font-size: 1.5rem; letter-spacing: -.02em; }
+.stat span { font-size: .78rem; color: var(--muted); }
+.stat.up b { color: var(--up); } .stat.down b { color: var(--down); } .stat.hold b { color: var(--hold); }
+.cta { background: linear-gradient(135deg, var(--accent-weak), var(--surface)); }
+
+.week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: .4rem; }
+.week-cell {
+  display: flex; flex-direction: column; align-items: center; gap: .2rem;
+  padding: .6rem .2rem; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface-2); position: relative; min-height: 64px; justify-content: center;
+}
+.week-cell.rest { opacity: .55; }
+.week-cell.workout { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.week-cell.today { outline: 2px solid var(--accent); }
+.week-cell.done { background: color-mix(in srgb, var(--up) 14%, var(--surface-2)); }
+.wc-day { font-weight: 800; font-size: .9rem; }
+.wc-label { font-size: .68rem; color: var(--muted); text-align: center; line-height: 1.15; }
+.wc-check { position: absolute; top: 3px; right: 5px; color: var(--up); font-size: .8rem; font-weight: 800; }
+
+/* ---- 루틴 요일 카드 ---- */
+.day-list { display: flex; flex-direction: column; gap: 1rem; }
+.day-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; box-shadow: var(--shadow); }
+.day-card.rest { opacity: .7; background: var(--surface-2); }
+.day-card.done { border-color: color-mix(in srgb, var(--up) 45%, var(--border)); }
+.day-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin-bottom: .5rem; }
+.daybadge { font-weight: 800; color: var(--accent); font-size: .82rem; background: var(--accent-weak); padding: .15rem .5rem; border-radius: 6px; }
+.focus-tags { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .7rem; }
+.focus-tags span { font-size: .74rem; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); padding: .12rem .5rem; border-radius: 999px; }
+
+table { width: 100%; border-collapse: collapse; }
+.ex-table th, .ex-table td { text-align: left; padding: .45rem .4rem; border-bottom: 1px solid var(--border); font-size: .9rem; }
+.ex-table th { font-size: .74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; font-weight: 700; }
+.ex-table tbody tr:last-child td { border-bottom: none; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ex-name { font-weight: 600; }
+.ex-muscle { display: block; font-size: .72rem; color: var(--muted); font-weight: 400; }
+
+/* ---- 조정 배너 ---- */
+.adjust-banner { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.chg-table td { padding: .35rem .4rem; font-size: .85rem; border-bottom: 1px solid var(--border); }
+.chg-table .reason { color: var(--muted); font-size: .8rem; }
+.chg-up td:nth-child(3) { color: var(--up); font-weight: 700; }
+.chg-down td:nth-child(3) { color: var(--down); font-weight: 700; }
+details summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: .88rem; margin: .5rem 0; }
+.ai-note { background: var(--surface-2); }
+
+/* ---- 기록 뷰 ---- */
+.day-tabs, .metric-tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.day-tab, .metric-tab {
+  padding: .5rem .9rem; border-radius: 999px; font-weight: 700; font-size: .9rem;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+}
+.day-tab.active, .metric-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.day-tab.done:not(.active) { border-color: color-mix(in srgb, var(--up) 50%, var(--border)); color: var(--up); }
+.log-ex { margin: 1rem 0; padding-top: .8rem; border-top: 1px solid var(--border); }
+.log-ex-head { margin-bottom: .4rem; }
+.log-table th, .log-table td { padding: .3rem .3rem; text-align: center; font-size: .85rem; }
+.log-table th { font-size: .72rem; color: var(--muted); font-weight: 700; }
+.log-table .setno { font-weight: 800; color: var(--muted); width: 2.4rem; }
+.log-table .target { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+.log-table input[type=number] { width: 100%; min-width: 3.2rem; text-align: center; padding: .4rem .2rem; }
+.log-table input[type=checkbox] { width: 1.15rem; height: 1.15rem; accent-color: var(--accent); }
+
+/* ---- 체성분 차트/표 ---- */
+.chart { width: 100%; height: auto; display: block; }
+.chart-axis { fill: var(--muted); font-size: 11px; }
+.chart-empty { color: var(--muted); padding: 2rem; text-align: center; }
+.table-scroll { overflow-x: auto; }
+.body-table th, .body-table td { padding: .45rem .5rem; border-bottom: 1px solid var(--border); font-size: .88rem; text-align: left; }
+.body-table th { font-size: .74rem; color: var(--muted); font-weight: 700; }
+.link-del { background: none; border: none; color: var(--down); padding: .2rem; font-size: .82rem; }
+
+/* ---- 설정 ---- */
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .5rem .8rem; }
+.kv > div { display: flex; flex-direction: column; }
+.kv span { font-size: .72rem; color: var(--muted); }
+.kv b { font-size: .95rem; }
+.danger-zone { border-color: color-mix(in srgb, var(--down) 25%, var(--border)); }
+
+/* ---- 토스트 ---- */
+.toast {
+  position: fixed; left: 50%; bottom: 1.3rem; transform: translate(-50%, 2rem);
+  background: var(--text); color: var(--bg); padding: .7rem 1.1rem; border-radius: 12px;
+  font-weight: 600; font-size: .9rem; box-shadow: var(--shadow); opacity: 0; pointer-events: none;
+  transition: opacity .25s, transform .25s; z-index: 100; max-width: 90vw; text-align: center;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.success { background: var(--up); color: #fff; }
+.toast.error { background: var(--down); color: #fff; }
+
+@media (max-width: 560px) {
+  .brand { font-size: .95rem; }
+  #nav button { padding: .4rem .5rem; font-size: .85rem; }
+  h1 { font-size: 1.35rem; }
+  .wc-label { display: none; }
+}
