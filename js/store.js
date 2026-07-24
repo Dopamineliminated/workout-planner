@@ -5,7 +5,7 @@ import { generateRoutine, dateForDay } from './engine.js';
 import { generateNextWeek } from './adjust.js';
 import { refineRoutine } from './ai.js';
 import { nextMonday, addDays, toISODate } from './core-util.js';
-import { WEEKDAY_LABELS, GOAL_LABELS, SESSION_LABELS } from './templates.js';
+import { WEEKDAYS, WEEKDAY_LABELS, GOAL_LABELS, SESSION_LABELS } from './templates.js';
 import { MUSCLE_LABELS } from './exercises.js';
 
 const LS_STATE = 'workout-planner:state:v1';
@@ -143,12 +143,17 @@ export const api = {
   async saveProfile(b) {
     const now = new Date().toISOString();
     const prev = store.state.profile;
+    // 운동 요일 직접 지정(요일 키 배열). 있으면 주당 일수는 그 개수로.
+    const custom = Array.isArray(b.customDays)
+      ? WEEKDAYS.filter((d) => b.customDays.includes(d))
+      : ((prev && prev.customDays) || []);
     store.state.profile = {
       name: b.name || '', sex: b.sex || '',
       birthDate: b.birthDate || (prev && prev.birthDate) || '',
       heightCm: num(b.heightCm), weightKg: num(b.weightKg),
       experience: b.experience || 'beginner',
-      daysPerWeek: clamp(num(b.daysPerWeek) || 3, 2, 6),
+      daysPerWeek: custom.length ? clamp(custom.length, 1, 7) : clamp(num(b.daysPerWeek) || 3, 2, 6),
+      customDays: custom,
       sessionMinutes: clamp(num(b.sessionMinutes) || 60, 20, 180),
       equipment: normalizeEquipment(b.equipment),
       excludedExercises: Array.isArray(b.excludedExercises) ? b.excludedExercises : ((prev && prev.excludedExercises) || []),

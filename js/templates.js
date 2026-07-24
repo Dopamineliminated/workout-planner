@@ -151,7 +151,7 @@ export function slotsFor(sessionType) {
 // 분할 결정: 사용자가 지정했으면 그 분할, 'auto'면 일수/경력으로 자동.
 // 반환: 각 운동일에 배정할 세션 타입 배열(길이 = 운동일수)
 export function buildSessionSequence(split, daysPerWeek, experience) {
-  const days = Math.max(1, Math.min(6, daysPerWeek || 3));
+  const days = Math.max(1, Math.min(7, daysPerWeek || 3)); // 직접 지정 시 최대 7일까지
   const chosen = split && split !== 'auto' ? split : autoSplit(days, experience);
 
   const cycles = {

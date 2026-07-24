@@ -166,10 +166,16 @@ function viewSetup(mode) {
         <label>몸무게(kg)<input id="f-weight" type="number" inputmode="decimal" value="${p.weightKg ?? ''}" placeholder="kg"></label>
         <label>운동량(볼륨)${selectHtml('f-exp', 'volumes', p.experience || 'intermediate')}</label>
         <label>주당 운동일수
-          <select id="f-days">${(store.meta.daysOptions || [3]).map((d) =>
+          <select id="f-days">${[...new Set([...(store.meta.daysOptions || [3]), p.daysPerWeek].filter(Boolean))].sort((a, b) => a - b).map((d) =>
             `<option value="${d}" ${p.daysPerWeek === d ? 'selected' : ''}>${d}일</option>`).join('')}</select></label>
         <label>1회 세션 시간(분)<input id="f-minutes" type="number" inputmode="numeric" value="${p.sessionMinutes ?? 60}"></label>
         <label>프로그램 시작일<input id="f-start" type="date" value="${esc(p.startDate || defStart)}"></label>
+      </div>
+      <div class="field">
+        <span class="field-label">운동 요일 직접 지정 <span class="muted">(선택 — 체크하면 위 '주당 일수' 대신 이 요일로)</span></span>
+        <div class="chips" id="f-days-custom">
+          ${WEEKDAYS.map((wd) => `<label class="chip"><input type="checkbox" value="${wd}" ${(p.customDays || []).includes(wd) ? 'checked' : ''}>${(store.meta.weekdayLabels || {})[wd] || wd}</label>`).join('')}
+        </div>
       </div>
       <div class="field">
         <span class="field-label">보유 장비 (여러 개 선택 가능)</span>
@@ -331,6 +337,7 @@ function wireSetup(mode) {
       sessionMinutes: qs('#f-minutes').value,
       equipment: qsa('#f-equip input:checked').map((c) => c.value),
       excludedExercises: qsa('.avail-cb:not(:checked)').map((c) => c.value),
+      customDays: qsa('#f-days-custom input:checked').map((c) => c.value),
       startDate: qs('#f-start').value,
     };
     const goals = {
@@ -961,10 +968,11 @@ function viewSettings() {
       <p class="muted small">운동 중 마음이 바뀌면 여기서 바로 바꾸세요.</p>
       <div class="grid2">
         <label>1회 세션 시간(분)<input id="q-min" type="number" inputmode="numeric" value="${p.sessionMinutes}"></label>
-        <label>주당 운동일수<select id="q-days">${(store.meta.daysOptions || []).map((d) => `<option value="${d}" ${p.daysPerWeek === d ? 'selected' : ''}>${d}일</option>`).join('')}</select></label>
+        <label>주당 운동일수<select id="q-days">${[...new Set([...(store.meta.daysOptions || []), p.daysPerWeek])].sort((a, b) => a - b).map((d) => `<option value="${d}" ${p.daysPerWeek === d ? 'selected' : ''}>${d}일</option>`).join('')}</select></label>
         <label>주 목표${selectHtml('q-goal', 'goals', g.primaryGoal)}</label>
         <label>운동량(볼륨)${selectHtml('q-vol', 'volumes', p.experience)}</label>
       </div>
+      ${(p.customDays && p.customDays.length) ? `<p class="muted small">📅 운동 요일 직접 지정 중: <b>${p.customDays.map((d) => dayLabel(d)).join('·')}</b> · 위에서 일수를 바꾸면 자동 배치로 전환돼요(요일 재지정은 아래 “프로필·목표 수정”).</p>` : ''}
       <div class="actions">
         <button id="q-save" class="ghost">저장만</button>
         <button id="q-regen" class="primary">저장 후 루틴 다시 생성</button>
@@ -975,7 +983,7 @@ function viewSettings() {
       <h2>프로필 · 목표</h2>
       <div class="kv">
         <div><span>운동량</span><b>${optLabel('volumes', p.experience)}</b></div>
-        <div><span>주당</span><b>${p.daysPerWeek}일 · ${p.sessionMinutes}분</b></div>
+        <div><span>주당</span><b>${p.daysPerWeek}일${p.customDays && p.customDays.length ? ' (' + p.customDays.map((d) => dayLabel(d)).join('·') + ')' : ''} · ${p.sessionMinutes}분</b></div>
         <div><span>장비</span><b>${(Array.isArray(p.equipment) ? p.equipment : []).map((eq) => optLabel('equipments', eq)).join(', ') || '-'}</b></div>
         <div><span>목표</span><b>${goalLabel(g.primaryGoal)}</b></div>
         <div><span>분할</span><b>${splitLabel(g.split)}</b></div>
@@ -1021,11 +1029,11 @@ function wireSettings() {
 
   async function applyQuick(regen) {
     try {
-      await api.patchProfile({
-        sessionMinutes: qs('#q-min').value,
-        daysPerWeek: Number(qs('#q-days').value),
-        experience: qs('#q-vol').value,
-      });
+      const qDays = Number(qs('#q-days').value);
+      const patch = { sessionMinutes: qs('#q-min').value, daysPerWeek: qDays, experience: qs('#q-vol').value };
+      // 숫자로 일수를 바꾸면 직접 지정 요일은 해제하고 자동 배치로 전환
+      if (qDays !== store.state.profile.daysPerWeek) patch.customDays = [];
+      await api.patchProfile(patch);
       await api.patchGoals({ primaryGoal: qs('#q-goal').value });
       if (regen) { await api.generate(true); toast('저장하고 루틴을 다시 만들었어요.', 'success'); }
       else toast('저장했어요. 루틴에 반영하려면 “다시 생성”을 누르세요.', 'success');

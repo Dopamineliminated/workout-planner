@@ -100,8 +100,12 @@ export function generateRoutine(profile, goals, opts = {}) {
   const caps = EXPERIENCE_CAPS[profile.experience] || EXPERIENCE_CAPS.intermediate;
   const goal = goals.primaryGoal || 'hypertrophy';
 
-  const trainDays = trainingDaysFor(profile.daysPerWeek);
-  const { split, sequence } = buildSessionSequence(goals.split, profile.daysPerWeek, profile.experience);
+  // 사용자가 운동 요일을 직접 지정했으면 그 요일들로, 아니면 주당 일수 자동 배치
+  const customDays = Array.isArray(profile.customDays) && profile.customDays.length
+    ? WEEKDAYS.filter((d) => profile.customDays.includes(d))
+    : null;
+  const trainDays = customDays || trainingDaysFor(profile.daysPerWeek);
+  const { split, sequence } = buildSessionSequence(goals.split, trainDays.length, profile.experience);
 
   const days = {};
   for (const wd of WEEKDAYS) {
