@@ -1,7 +1,7 @@
 // 루틴 생성 엔진: 프로필 + 목표 → 요일별 루틴.
 // 트레이너 로직을 코드로 구현(분할 선택 → 슬롯 구성 → 운동 선택 → 세트/횟수 배정 → 시간 예산 조정).
 
-import { EQUIPMENT_SETS, candidatesFor, MUSCLE_LABELS } from './exercises.js';
+import { allowedEquipment, candidatesFor, MUSCLE_LABELS } from './exercises.js';
 import {
   WEEKDAYS, WEEKDAY_LABELS, trainingDaysFor, buildSessionSequence,
   slotsFor, schemeFor, SESSION_LABELS, EXPERIENCE_CAPS, cardioFor,
@@ -95,7 +95,7 @@ export function generateRoutine(profile, goals, opts = {}) {
   const startDate = opts.startDate || toISODate(new Date());
   const seed = opts.seed != null ? opts.seed : weekNumber;
 
-  const allowed = EQUIPMENT_SETS[profile.equipment] || EQUIPMENT_SETS.full_gym;
+  const allowed = allowedEquipment(profile.equipment);
   const caps = EXPERIENCE_CAPS[profile.experience] || EXPERIENCE_CAPS.intermediate;
   const goal = goals.primaryGoal || 'hypertrophy';
 

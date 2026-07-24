@@ -87,13 +87,16 @@ function buildUserMessage(profile, goals, routine) {
         };
   }
   const age = ageFromBirth(profile.birthDate);
+  const volMap = { beginner: '적게', intermediate: '표준', advanced: '많이' };
+  const equipMap = { gym: '헬스장(전체)', barbell: '바벨/랙', dumbbell: '덤벨', machine_cable: '머신·케이블', bodyweight: '맨몸', outdoor_cardio: '야외 러닝/유산소' };
+  const equipStr = (Array.isArray(profile.equipment) ? profile.equipment : [profile.equipment]).map((e) => equipMap[e] || e).join(', ');
   return `# 사용자 프로필
 - 성별/나이: ${profile.sex || '-'} / ${age != null ? age + '세' : '-'}
 - 키/몸무게: ${profile.heightCm || '-'}cm / ${profile.weightKg || '-'}kg
-- 경력: ${profile.experience}
+- 운동량(볼륨) 성향: ${volMap[profile.experience] || profile.experience}
 - 주당 운동일수: ${profile.daysPerWeek}일
 - 1회 세션 시간: ${profile.sessionMinutes}분
-- 장비: ${profile.equipment}
+- 보유 장비: ${equipStr}
 
 # 목표
 - 주 목표: ${GOAL_LABELS[goals.primaryGoal] || goals.primaryGoal}

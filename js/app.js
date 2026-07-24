@@ -5,6 +5,21 @@ import {
 } from './util.js';
 import { recommendGoal } from './recommend.js';
 import { ageFromBirth } from './core-util.js';
+import { parseInbodyCsv } from './inbody.js';
+
+// 체성분 그래프에 쓸 지표 정의(데이터가 있는 항목만 탭으로 표시)
+const BODY_METRICS = [
+  { key: 'weightKg', label: '체중', unit: 'kg', color: '#e2703a' },
+  { key: 'skeletalMuscleKg', label: '골격근량', unit: 'kg', color: '#3a86c8' },
+  { key: 'bodyFatPct', label: '체지방률', unit: '%', color: '#6b8e23' },
+  { key: 'fatMassKg', label: '체지방량', unit: 'kg', color: '#c1666b' },
+  { key: 'bmi', label: 'BMI', unit: '', color: '#7d6ba0' },
+  { key: 'bmr', label: '기초대사량', unit: 'kcal', color: '#c98a3a' },
+  { key: 'inbodyScore', label: '인바디점수', unit: '점', color: '#2f9e57' },
+  { key: 'visceralFat', label: '내장지방', unit: 'lv', color: '#b5651d' },
+  { key: 'bodyWaterL', label: '체수분', unit: 'L', color: '#3aa0a0' },
+  { key: 'proteinKg', label: '단백질', unit: 'kg', color: '#8a6d3b' },
+];
 
 const NAV = [
   { view: 'dashboard', label: '대시보드' },
@@ -18,6 +33,7 @@ const NAV = [
 let logDay = null;        // 기록 뷰에서 선택된 요일
 let bodyMetric = 'weightKg';
 let pendingAdjust = null; // 다음 주 생성 직후 표시할 조정 내역
+let inbodyStaged = null;  // 설정에서 업로드한 인바디 CSV(저장 시 체성분으로 가져옴)
 
 // ---------- 부트스트랩 ----------
 init();
@@ -119,13 +135,21 @@ function viewSetup(mode) {
         <label>생년월일<input id="f-birth" type="date" value="${esc(p.birthDate || '')}" max="${todayISO()}"></label>
         <label>키(cm)<input id="f-height" type="number" inputmode="decimal" value="${p.heightCm ?? ''}" placeholder="cm"></label>
         <label>몸무게(kg)<input id="f-weight" type="number" inputmode="decimal" value="${p.weightKg ?? ''}" placeholder="kg"></label>
-        <label>운동 경력${selectHtml('f-exp', 'experiences', p.experience || 'beginner')}</label>
+        <label>운동량(볼륨)${selectHtml('f-exp', 'volumes', p.experience || 'intermediate')}</label>
         <label>주당 운동일수
           <select id="f-days">${(store.meta.daysOptions || [3]).map((d) =>
             `<option value="${d}" ${p.daysPerWeek === d ? 'selected' : ''}>${d}일</option>`).join('')}</select></label>
         <label>1회 세션 시간(분)<input id="f-minutes" type="number" inputmode="numeric" value="${p.sessionMinutes ?? 60}"></label>
-        <label>사용 장비${selectHtml('f-equip', 'equipments', p.equipment || 'full_gym')}</label>
         <label>프로그램 시작일<input id="f-start" type="date" value="${esc(p.startDate || defStart)}"></label>
+      </div>
+      <div class="field">
+        <span class="field-label">보유 장비 (여러 개 선택 가능)</span>
+        <div class="chips" id="f-equip">
+          ${(store.meta.equipments || []).map((o) => {
+            const eq = Array.isArray(p.equipment) ? p.equipment : ['gym'];
+            return `<label class="chip"><input type="checkbox" value="${o.value}" ${eq.includes(o.value) ? 'checked' : ''}>${esc(o.label)}</label>`;
+          }).join('')}
+        </div>
       </div>
     </div>
 
@@ -137,8 +161,11 @@ function viewSetup(mode) {
         <label>진행 속도${selectHtml('f-prog', 'progressions', g.progression || 'standard')}</label>
       </div>
       <details class="reco">
-        <summary>🤔 목표를 잘 모르겠다면 — 최근 인바디로 추천받기</summary>
-        <p class="muted small">최근 인바디 결과를 1~3개 입력하면 추천 목표를 알려드려요(많을수록 추세 반영). 입력값은 체성분 기록에도 함께 저장돼요.</p>
+        <summary>🤔 목표를 잘 모르겠다면 — 인바디로 추천받기</summary>
+        <p class="muted small">인바디 CSV를 올리거나 결과를 직접 입력하면 추천 목표를 알려드려요(많을수록 추세 반영). 입력값은 체성분 기록에도 함께 저장돼요.</p>
+        <div class="actions">
+          <label class="btn ghost sm import-label">📄 인바디 CSV 올리기<input type="file" id="reco-csv" accept=".csv,text/csv" hidden></label>
+        </div>
         <div id="reco-rows"></div>
         <div class="actions">
           <button type="button" id="reco-add" class="ghost sm">＋ 결과 추가</button>
@@ -178,12 +205,35 @@ function readRecoEntries() {
 
 function wireSetup(mode) {
   // 인바디 기반 목표 추천 패널
+  inbodyStaged = null;
   const recoRows = qs('#reco-rows');
   if (recoRows) {
     recoRows.insertAdjacentHTML('beforeend', recoRowHtml());
     qs('#reco-add').addEventListener('click', () => {
       if (qsa('.reco-row', recoRows).length >= 4) { toast('최대 4개까지 입력할 수 있어요.'); return; }
       recoRows.insertAdjacentHTML('beforeend', recoRowHtml());
+    });
+    const recoCsv = qs('#reco-csv');
+    if (recoCsv) recoCsv.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        const entries = parseInbodyCsv(await file.text());
+        if (!entries.length) { toast('인식할 인바디 데이터가 없어요.', 'error'); e.target.value = ''; return; }
+        inbodyStaged = entries; // 저장 시 전체 항목을 체성분으로 가져옴
+        recoRows.innerHTML = '';
+        entries.slice(-4).forEach((en) => {
+          recoRows.insertAdjacentHTML('beforeend', recoRowHtml());
+          const row = recoRows.lastElementChild;
+          qs('.rc-date', row).value = en.date;
+          if (en.weightKg != null) qs('.rc-wt', row).value = en.weightKg;
+          if (en.skeletalMuscleKg != null) qs('.rc-smm', row).value = en.skeletalMuscleKg;
+          if (en.bodyFatPct != null) qs('.rc-bf', row).value = en.bodyFatPct;
+        });
+        toast(`인바디 ${entries.length}개 인식 · 추천 분석`, 'success');
+        qs('#reco-run').click();
+      } catch (err) { toast('CSV 읽기 실패: ' + err.message, 'error'); }
+      e.target.value = '';
     });
     recoRows.addEventListener('click', (e) => {
       const del = e.target.closest('.rc-del');
@@ -217,7 +267,7 @@ function wireSetup(mode) {
       experience: qs('#f-exp').value,
       daysPerWeek: Number(qs('#f-days').value),
       sessionMinutes: qs('#f-minutes').value,
-      equipment: qs('#f-equip').value,
+      equipment: qsa('#f-equip input:checked').map((c) => c.value),
       startDate: qs('#f-start').value,
     };
     const goals = {
@@ -229,8 +279,10 @@ function wireSetup(mode) {
     try {
       await api.saveProfile(profile);
       await api.saveGoals(goals);
-      // 추천 패널에 입력한 인바디 값이 있으면 체성분 기록에도 저장
-      for (const en of readRecoEntries()) { try { await api.saveBody(en); } catch {} }
+      // 추천 패널에 입력/업로드한 인바디 값을 체성분 기록에도 저장
+      if (inbodyStaged && inbodyStaged.length) { try { await api.importBodyEntries(inbodyStaged); } catch {} }
+      else { for (const en of readRecoEntries()) { try { await api.saveBody(en); } catch {} } }
+      inbodyStaged = null;
       const hadRoutine = !!store.state.routine;
       if (mode === 'onboard' || !hadRoutine) {
         await api.generate(false);
@@ -353,7 +405,7 @@ function viewDashboard() {
   return `
   <section class="dash">
     <h1>${name}오늘도 화이팅! 🔥</h1>
-    <p class="lead">${goalLabel(g.primaryGoal)} · 주 ${p.daysPerWeek}회 · ${optLabel('experiences', p.experience)}</p>
+    <p class="lead">${goalLabel(g.primaryGoal)} · 주 ${p.daysPerWeek}회 · 볼륨 ${optLabel('volumes', p.experience)}</p>
     ${todayCard}
     ${weekGrid}
     <div class="grid2">
@@ -720,11 +772,8 @@ function wireLog() {
 function viewBody() {
   const s = store.state;
   const body = s.body || [];
-  const metrics = [
-    { key: 'weightKg', label: '체중(kg)', color: '#e2703a' },
-    { key: 'skeletalMuscleKg', label: '골격근량(kg)', color: '#3a86c8' },
-    { key: 'bodyFatPct', label: '체지방률(%)', color: '#6b8e23' },
-  ];
+  const avail = BODY_METRICS.filter((d) => body.some((b) => b[d.key] != null));
+  const metrics = avail.length ? avail : BODY_METRICS.slice(0, 3);
   const m = metrics.find((x) => x.key === bodyMetric) || metrics[0];
   const labels = body.map((b) => fmtDate(b.date));
   const values = body.map((b) => b[m.key]);
@@ -735,61 +784,89 @@ function viewBody() {
       <td class="num">${b.weightKg ?? '-'}</td>
       <td class="num">${b.skeletalMuscleKg ?? '-'}</td>
       <td class="num">${b.bodyFatPct ?? '-'}</td>
-      <td>${esc(b.note || '')}</td>
+      <td class="num">${b.fatMassKg ?? '-'}</td>
+      <td class="num">${b.inbodyScore ?? '-'}</td>
       <td><button class="link-del" data-del="${esc(b.date)}">삭제</button></td>
     </tr>`).join('');
 
   return `
   <section class="bodyview">
-    <div class="page-head"><h1>체성분 추이</h1><p class="lead">인바디 측정값을 입력하면 변화를 추적하고 루틴 강도에 참고해요.</p></div>
+    <div class="page-head"><h1>체성분 추이</h1><p class="lead">인바디 CSV를 가져오거나 값을 입력하면 여러 항목의 변화를 추적해요.</p></div>
 
     <div class="card">
-      <h2>측정값 입력</h2>
+      <h2>📄 인바디 CSV 가져오기</h2>
+      <p class="muted small">인바디 앱에서 내보낸 CSV를 올리면 과거 기록과 여러 항목(체지방량·BMI·기초대사량·인바디점수·내장지방·체수분 등)을 한 번에 가져와요.</p>
+      <div class="actions">
+        <label class="btn primary import-label">파일 선택<input id="ib-import" type="file" accept=".csv,text/csv" hidden></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>직접 입력</h2>
       <div class="grid2">
-        <label>날짜<input id="b-date" type="date" value="${todayISO()}"></label>
-        <label>체중(kg)<input id="b-weight" type="number" inputmode="decimal" placeholder="kg"></label>
-        <label>골격근량(kg)<input id="b-muscle" type="number" inputmode="decimal" placeholder="kg"></label>
-        <label>체지방률(%)<input id="b-fat" type="number" inputmode="decimal" placeholder="%"></label>
+        <label>날짜<input id="b-date" type="date" value="${todayISO()}" max="${todayISO()}"></label>
+        <label>체중(kg)<input id="b-weightKg" type="number" inputmode="decimal" placeholder="kg"></label>
+        <label>골격근량(kg)<input id="b-skeletalMuscleKg" type="number" inputmode="decimal" placeholder="kg"></label>
+        <label>체지방률(%)<input id="b-bodyFatPct" type="number" inputmode="decimal" placeholder="%"></label>
+        <label>체지방량(kg)<input id="b-fatMassKg" type="number" inputmode="decimal" placeholder="kg"></label>
+        <label>BMI<input id="b-bmi" type="number" inputmode="decimal" placeholder="kg/m²"></label>
+        <label>기초대사량(kcal)<input id="b-bmr" type="number" inputmode="numeric" placeholder="kcal"></label>
+        <label>인바디점수<input id="b-inbodyScore" type="number" inputmode="numeric" placeholder="점"></label>
       </div>
       <label class="note-field">메모<input id="b-note" placeholder="선택"></label>
-      <div class="hint">💡 인바디 자동 연동은 공개 API가 없어 지원되지 않아요. 측정 후 값을 직접 입력하면 됩니다.</div>
       <div class="actions"><button id="b-save" class="primary">저장</button></div>
     </div>
 
     <div class="card">
       <div class="metric-tabs">
-        ${metrics.map((x) => `<button class="metric-tab ${x.key === bodyMetric ? 'active' : ''}" data-metric="${x.key}">${x.label}</button>`).join('')}
+        ${metrics.map((x) => `<button class="metric-tab ${x.key === m.key ? 'active' : ''}" data-metric="${x.key}">${x.label}</button>`).join('')}
       </div>
-      ${lineChart(labels, values, { unit: m.key === 'bodyFatPct' ? '%' : 'kg', color: m.color })}
+      ${lineChart(labels, values, { unit: m.unit, color: m.color })}
     </div>
 
     <div class="card">
       <h2>기록 (${body.length})</h2>
       <div class="table-scroll">
         <table class="body-table">
-          <thead><tr><th>날짜</th><th class="num">체중</th><th class="num">골격근</th><th class="num">체지방%</th><th>메모</th><th></th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="6" class="muted">아직 기록이 없어요.</td></tr>'}</tbody>
+          <thead><tr><th>날짜</th><th class="num">체중</th><th class="num">골격근</th><th class="num">체지방%</th><th class="num">체지방kg</th><th class="num">점수</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="7" class="muted">아직 기록이 없어요.</td></tr>'}</tbody>
         </table>
       </div>
     </div>
   </section>`;
 }
 
+const BODY_INPUT_FIELDS = ['weightKg', 'skeletalMuscleKg', 'bodyFatPct', 'fatMassKg', 'bmi', 'bmr', 'inbodyScore'];
+
 function wireBody() {
   qsa('.metric-tab').forEach((b) => b.addEventListener('click', () => { bodyMetric = b.dataset.metric; render(); }));
+
+  const imp = qs('#ib-import');
+  if (imp) imp.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const entries = parseInbodyCsv(await file.text());
+      if (!entries.length) { toast('인식할 수 있는 인바디 데이터가 없어요. 파일을 확인해 주세요.', 'error'); e.target.value = ''; return; }
+      const n = await api.importBodyEntries(entries);
+      toast(`인바디 기록 ${n}개를 가져왔어요.`, 'success');
+      render();
+    } catch (err) {
+      toast('CSV 읽기 실패: ' + err.message, 'error');
+    }
+    e.target.value = '';
+  });
+
   qs('#b-save').addEventListener('click', async (e) => {
-    const payload = {
-      date: qs('#b-date').value,
-      weightKg: qs('#b-weight').value,
-      skeletalMuscleKg: qs('#b-muscle').value,
-      bodyFatPct: qs('#b-fat').value,
-      note: qs('#b-note').value,
-    };
+    const payload = { date: qs('#b-date').value, note: qs('#b-note').value };
+    for (const f of BODY_INPUT_FIELDS) payload[f] = qs('#b-' + f).value;
     if (!payload.date) { toast('날짜를 입력하세요.', 'error'); return; }
+    if (!BODY_INPUT_FIELDS.some((f) => payload[f])) { toast('값을 하나 이상 입력하세요.', 'error'); return; }
     e.currentTarget.disabled = true;
     try { await api.saveBody(payload); toast('저장했어요.', 'success'); render(); }
     catch (err) { toast(err.message, 'error'); e.currentTarget.disabled = false; }
   });
+
   qsa('[data-del]').forEach((b) => b.addEventListener('click', async () => {
     if (!confirm('이 기록을 삭제할까요?')) return;
     try { await api.deleteBody(b.dataset.del); render(); } catch (err) { toast(err.message, 'error'); }
@@ -807,11 +884,26 @@ function viewSettings() {
     <div class="page-head"><h1>설정</h1></div>
 
     <div class="card">
+      <h2>⚡ 빠른 조정</h2>
+      <p class="muted small">운동 중 마음이 바뀌면 여기서 바로 바꾸세요.</p>
+      <div class="grid2">
+        <label>1회 세션 시간(분)<input id="q-min" type="number" inputmode="numeric" value="${p.sessionMinutes}"></label>
+        <label>주당 운동일수<select id="q-days">${(store.meta.daysOptions || []).map((d) => `<option value="${d}" ${p.daysPerWeek === d ? 'selected' : ''}>${d}일</option>`).join('')}</select></label>
+        <label>주 목표${selectHtml('q-goal', 'goals', g.primaryGoal)}</label>
+        <label>운동량(볼륨)${selectHtml('q-vol', 'volumes', p.experience)}</label>
+      </div>
+      <div class="actions">
+        <button id="q-save" class="ghost">저장만</button>
+        <button id="q-regen" class="primary">저장 후 루틴 다시 생성</button>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>프로필 · 목표</h2>
       <div class="kv">
-        <div><span>경력</span><b>${optLabel('experiences', p.experience)}</b></div>
+        <div><span>운동량</span><b>${optLabel('volumes', p.experience)}</b></div>
         <div><span>주당</span><b>${p.daysPerWeek}일 · ${p.sessionMinutes}분</b></div>
-        <div><span>장비</span><b>${optLabel('equipments', p.equipment)}</b></div>
+        <div><span>장비</span><b>${(Array.isArray(p.equipment) ? p.equipment : []).map((eq) => optLabel('equipments', eq)).join(', ') || '-'}</b></div>
         <div><span>목표</span><b>${goalLabel(g.primaryGoal)}</b></div>
         <div><span>분할</span><b>${splitLabel(g.split)}</b></div>
         <div><span>진행</span><b>${optLabel('progressions', g.progression)}</b></div>
@@ -853,6 +945,23 @@ function viewSettings() {
 
 function wireSettings() {
   qs('#edit-setup').addEventListener('click', () => { location.hash = '#setup'; });
+
+  async function applyQuick(regen) {
+    try {
+      await api.patchProfile({
+        sessionMinutes: qs('#q-min').value,
+        daysPerWeek: Number(qs('#q-days').value),
+        experience: qs('#q-vol').value,
+      });
+      await api.patchGoals({ primaryGoal: qs('#q-goal').value });
+      if (regen) { await api.generate(true); toast('저장하고 루틴을 다시 만들었어요.', 'success'); }
+      else toast('저장했어요. 루틴에 반영하려면 “다시 생성”을 누르세요.', 'success');
+      render();
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  const qSave = qs('#q-save'), qRegen = qs('#q-regen');
+  if (qSave) qSave.addEventListener('click', () => applyQuick(false));
+  if (qRegen) qRegen.addEventListener('click', () => applyQuick(true));
 
   qs('#set-save').addEventListener('click', async (e) => {
     const payload = { useAI: qs('#set-useai').checked, model: qs('#set-model').value };

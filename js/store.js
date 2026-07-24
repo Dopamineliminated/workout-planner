@@ -46,21 +46,35 @@ function setKey(k) { if (k) localStorage.setItem(LS_KEY, k); else localStorage.r
 function num(v) { if (v === '' || v == null) return null; const n = Number(v); return isNaN(n) ? null : n; }
 function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
 
+const EQUIP_VALID = ['gym', 'barbell', 'dumbbell', 'machine_cable', 'bodyweight', 'outdoor_cardio'];
+const EQUIP_LEGACY = { full_gym: ['gym'], dumbbell_only: ['dumbbell'], home_minimal: ['bodyweight', 'dumbbell'] };
+function normalizeEquipment(v) {
+  if (Array.isArray(v)) { const a = v.filter((x) => EQUIP_VALID.includes(x)); return a.length ? a : ['gym']; }
+  if (typeof v === 'string' && EQUIP_LEGACY[v]) return EQUIP_LEGACY[v];
+  return ['gym'];
+}
+
+// 인바디에서 가져오는 확장 체성분 항목
+const BODY_FIELDS = ['weightKg', 'skeletalMuscleKg', 'bodyFatPct', 'fatMassKg', 'bmi', 'bmr', 'inbodyScore', 'whr', 'visceralFat', 'bodyWaterL', 'proteinKg', 'mineralKg', 'muscleMassKg', 'smi'];
+
 function buildMeta() {
   const opt = (obj) => Object.entries(obj).map(([value, label]) => ({ value, label }));
   return {
     weekdayLabels: WEEKDAY_LABELS, muscleLabels: MUSCLE_LABELS,
     goalLabels: GOAL_LABELS, sessionLabels: SESSION_LABELS,
     goals: opt(GOAL_LABELS), muscleOptions: opt(MUSCLE_LABELS),
-    experiences: [
-      { value: 'beginner', label: '입문 (~6개월)' },
-      { value: 'intermediate', label: '중급 (6개월~2년)' },
-      { value: 'advanced', label: '고급 (2년+)' },
+    volumes: [
+      { value: 'beginner', label: '적게 (부담 없이)' },
+      { value: 'intermediate', label: '표준' },
+      { value: 'advanced', label: '많이 (고볼륨)' },
     ],
     equipments: [
-      { value: 'full_gym', label: '헬스장 (바벨·머신·케이블 전부)' },
-      { value: 'dumbbell_only', label: '덤벨 위주' },
-      { value: 'home_minimal', label: '홈트 (자중·덤벨)' },
+      { value: 'gym', label: '헬스장 (바벨·머신·케이블 전부)' },
+      { value: 'barbell', label: '바벨/랙' },
+      { value: 'dumbbell', label: '덤벨' },
+      { value: 'machine_cable', label: '머신·케이블' },
+      { value: 'bodyweight', label: '맨몸(자중)' },
+      { value: 'outdoor_cardio', label: '야외 러닝/유산소' },
     ],
     splits: [
       { value: 'auto', label: '자동 추천' },
@@ -107,7 +121,7 @@ export const api = {
       experience: b.experience || 'beginner',
       daysPerWeek: clamp(num(b.daysPerWeek) || 3, 2, 6),
       sessionMinutes: clamp(num(b.sessionMinutes) || 60, 20, 180),
-      equipment: b.equipment || 'full_gym',
+      equipment: normalizeEquipment(b.equipment),
       startDate: b.startDate || (prev && prev.startDate) || nextMonday(),
       createdAt: (prev && prev.createdAt) || now,
       updatedAt: now,
@@ -178,17 +192,48 @@ export const api = {
 
   async saveBody(b) {
     const s = store.state;
-    const entry = { date: b.date, weightKg: num(b.weightKg), skeletalMuscleKg: num(b.skeletalMuscleKg), bodyFatPct: num(b.bodyFatPct), note: b.note || '' };
+    if (!b.date) throw new Error('날짜가 필요합니다.');
+    const existing = s.body.find((x) => x.date === b.date) || {};
+    const entry = { ...existing, date: b.date };
+    for (const f of BODY_FIELDS) {
+      if (b[f] !== undefined && b[f] !== '' && b[f] !== null) entry[f] = num(b[f]);
+    }
+    if (b.note !== undefined) entry.note = b.note;
     s.body = s.body.filter((x) => x.date !== b.date);
     s.body.push(entry);
     s.body.sort((a, c) => a.date.localeCompare(c.date));
     persist();
   },
 
+  // 인바디 CSV 등에서 여러 항목을 한 번에 가져오기(날짜별 병합)
+  async importBodyEntries(entries) {
+    const s = store.state;
+    let n = 0;
+    for (const e of entries || []) {
+      if (!e || !e.date) continue;
+      const existing = s.body.find((x) => x.date === e.date) || {};
+      const entry = { ...existing, date: e.date };
+      for (const f of BODY_FIELDS) {
+        const v = num(e[f]);
+        if (v != null) entry[f] = v;
+      }
+      s.body = s.body.filter((x) => x.date !== e.date);
+      s.body.push(entry);
+      n++;
+    }
+    s.body.sort((a, c) => a.date.localeCompare(c.date));
+    persist();
+    return n;
+  },
+
   async deleteBody(date) {
     store.state.body = store.state.body.filter((x) => x.date !== date);
     persist();
   },
+
+  // 일부 필드만 병합 저장(빠른 수정용)
+  async patchProfile(partial) { await this.saveProfile({ ...(store.state.profile || {}), ...partial }); },
+  async patchGoals(partial) { await this.saveGoals({ ...(store.state.goals || {}), ...partial }); },
 
   async saveCardio(b) {
     const s = store.state;

@@ -88,12 +88,35 @@ export const EXERCISES = [
   { id: 'shrug', name: '슈러그', muscle: 'traps', kind: 'isolation', equipment: ['barbell', 'dumbbell'], inc: 'mid' },
 ];
 
-// 장비 옵션 → 사용 가능한 장비 목록
+// 장비 옵션 → 사용 가능한 장비 목록 (레거시 단일 선택 값)
 export const EQUIPMENT_SETS = {
   full_gym: ['barbell', 'dumbbell', 'machine', 'cable', 'bodyweight'],
   dumbbell_only: ['dumbbell', 'bodyweight'],
   home_minimal: ['bodyweight', 'dumbbell'],
 };
+
+// 다중 선택 장비 역량(capability) → 실제 장비 태그. outdoor_cardio는 근력 장비 없음(유산소 장소).
+export const EQUIPMENT_CAPS = {
+  gym: ['barbell', 'dumbbell', 'machine', 'cable', 'bodyweight'],
+  barbell: ['barbell', 'bodyweight'],
+  dumbbell: ['dumbbell', 'bodyweight'],
+  machine_cable: ['machine', 'cable', 'bodyweight'],
+  bodyweight: ['bodyweight'],
+  outdoor_cardio: [],
+};
+
+// 선택된 장비(배열 또는 레거시 문자열) → 사용 가능한 장비 태그 배열
+export function allowedEquipment(equipment) {
+  const arr = Array.isArray(equipment) ? equipment : (equipment ? [equipment] : []);
+  const set = new Set();
+  for (const cap of arr) (EQUIPMENT_CAPS[cap] || []).forEach((t) => set.add(t));
+  // 레거시 단일 문자열(full_gym 등) 호환
+  if (typeof equipment === 'string' && EQUIPMENT_SETS[equipment]) {
+    EQUIPMENT_SETS[equipment].forEach((t) => set.add(t));
+  }
+  if (set.size === 0) set.add('bodyweight');
+  return [...set];
+}
 
 // 무게 증량 등급 → kg
 export const INCREMENT_KG = { big: 5, mid: 2.5, small: 1.25 };
