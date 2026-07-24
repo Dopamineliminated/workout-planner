@@ -24,11 +24,10 @@ const BODY_METRICS = [
 ];
 
 const NAV = [
-  { view: 'dashboard', label: '대시보드' },
-  { view: 'routine', label: '루틴' },
-  { view: 'log', label: '기록' },
-  { view: 'body', label: '체성분' },
-  { view: 'settings', label: '설정' },
+  { view: 'dashboard', label: '홈', icon: '🏠' },
+  { view: 'routine', label: '루틴', icon: '💪' },
+  { view: 'log', label: '기록', icon: '✏️' },
+  { view: 'body', label: '체성분', icon: '📊' },
 ];
 
 // UI 로컬 상태
@@ -71,18 +70,26 @@ function buildShell() {
   document.body.innerHTML = `
     <header class="topbar">
       <div class="brand">🐱 고양이 헬스</div>
-      <nav id="nav">${NAV.map((n) => `<button data-view="${n.view}">${n.label}</button>`).join('')}</nav>
+      <button id="profile-btn" class="profile-btn" aria-label="마이페이지">🐱</button>
     </header>
-    <main id="app"></main>`;
-  qs('#nav').addEventListener('click', (e) => {
+    <main id="app"></main>
+    <nav id="tabbar">${NAV.map((n) => `<button data-view="${n.view}"><span class="tb-ic">${n.icon}</span><span class="tb-lb">${n.label}</span></button>`).join('')}</nav>`;
+  qs('#tabbar').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-view]');
     if (b) location.hash = '#' + b.dataset.view;
   });
+  qs('#profile-btn').addEventListener('click', () => { location.hash = '#mypage'; });
   // 운동 이름 클릭 → 설명 모달 (전역 위임)
   document.body.addEventListener('click', (e) => {
     const el = e.target.closest('[data-exinfo]');
     if (el) { e.preventDefault(); openExerciseModal(el.dataset.exinfo); }
   });
+}
+
+function setChrome(show) {
+  const tb = qs('#tabbar'), pb = qs('#profile-btn');
+  if (tb) tb.style.display = show ? '' : 'none';
+  if (pb) pb.style.display = show ? '' : 'none';
 }
 
 function openExerciseModal(id) {
@@ -182,37 +189,36 @@ function wireLogin() {
 
 function render() {
   const app = qs('#app');
-  const nav = qs('#nav');
   if (authState === 'loading') {
-    nav.style.visibility = 'hidden';
+    setChrome(false);
     app.innerHTML = '<div class="loading">불러오는 중…</div>';
     return;
   }
   if (authState === 'out') {
-    nav.style.visibility = 'hidden';
+    setChrome(false);
     app.innerHTML = viewLogin();
     wireLogin();
     return;
   }
   if (!setupComplete()) {
-    nav.style.visibility = 'hidden';
+    setChrome(false);
     app.innerHTML = viewSetup('onboard');
     wireSetup('onboard');
     return;
   }
-  nav.style.visibility = 'visible';
+  setChrome(true);
 
   let view = (location.hash || '#dashboard').slice(1);
-  if (view === 'setup') { app.innerHTML = viewSetup('edit'); wireSetup('edit'); markNav(''); return; }
+  if (view === 'setup') { app.innerHTML = viewSetup('edit'); wireSetup('edit'); markTab(''); return; }
+  if (view === 'mypage') { app.innerHTML = viewMyPage(); wireMyPage(); markTab(''); return; }
   if (!NAV.some((n) => n.view === view)) view = 'dashboard';
-  markNav(view);
+  markTab(view);
 
   const map = {
     dashboard: [viewDashboard, wireDashboard],
     routine: [viewRoutine, wireRoutine],
     log: [viewLog, wireLog],
     body: [viewBody, wireBody],
-    settings: [viewSettings, wireSettings],
   };
   const [renderFn, wireFn] = map[view];
   app.innerHTML = renderFn();
@@ -221,8 +227,8 @@ function render() {
   window.scrollTo(0, 0);
 }
 
-function markNav(view) {
-  qsa('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+function markTab(view) {
+  qsa('#tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
 }
 
 // ---------- 라벨 헬퍼 ----------
@@ -462,7 +468,7 @@ function wireSetup(mode) {
         if (location.hash === '#routine') render();
       } else {
         toast('저장되었어요. 루틴 탭에서 “다시 생성”으로 반영하세요.', 'success');
-        location.hash = '#settings';
+        location.hash = '#mypage';
       }
     } catch (err) {
       toast(err.message, 'error');
@@ -471,7 +477,7 @@ function wireSetup(mode) {
   });
 
   const cancel = qs('#setup-cancel');
-  if (cancel) cancel.addEventListener('click', () => { location.hash = '#settings'; });
+  if (cancel) cancel.addEventListener('click', () => { location.hash = '#mypage'; });
 }
 
 // ==================================================
@@ -757,7 +763,7 @@ function wireRoutine() {
   qs('#btn-ai') && qs('#btn-ai').addEventListener('click', async (e) => {
     if (!store.state.settings.hasApiKey) {
       toast('먼저 설정에서 Claude API 키를 입력하세요.', 'error');
-      location.hash = '#settings'; return;
+      location.hash = '#mypage'; return;
     }
     const btn = e.currentTarget;
     btn.disabled = true; btn.textContent = '🤖 다듬는 중… (최대 1~2분)';
@@ -1078,12 +1084,19 @@ function wireSyncCard() {
   on('fb-signout', 'click', async () => { if (!confirm('로그아웃할까요?')) return; await sync.signOut(); toast('로그아웃했어요.'); });
 }
 
-function viewSettings() {
+function viewMyPage() {
   const s = store.state;
   const p = s.profile, g = s.goals, set = s.settings;
+  const user = sync.user();
   return `
-  <section class="settings">
-    <div class="page-head"><h1>설정</h1></div>
+  <section class="settings mypage">
+    <div class="mypage-head">
+      <div class="mp-avatar">🐱</div>
+      <div class="mp-info">
+        <h1>${p && p.name ? esc(p.name) : '마이 페이지'}</h1>
+        <p class="muted small">${user ? esc(user.email || user.uid) : '게스트'}</p>
+      </div>
+    </div>
 
     <div class="card">
       <h2>⚡ 빠른 조정</h2>
@@ -1155,7 +1168,7 @@ function viewSettings() {
   </section>`;
 }
 
-function wireSettings() {
+function wireMyPage() {
   qs('#edit-setup').addEventListener('click', () => { location.hash = '#setup'; });
   wireSyncCard();
 

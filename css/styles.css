@@ -60,16 +60,40 @@ code { background: var(--surface-2); padding: .1em .4em; border-radius: 6px; fon
   border-bottom: 1px solid var(--border);
 }
 .brand { font-weight: 800; letter-spacing: -.02em; white-space: nowrap; }
-#nav { display: flex; gap: .2rem; margin-left: auto; flex-wrap: wrap; }
-#nav button {
-  border: none; background: transparent; color: var(--muted);
-  font: inherit; font-size: .92rem; font-weight: 600;
-  padding: .45rem .7rem; border-radius: 10px; cursor: pointer;
+.profile-btn {
+  margin-left: auto; width: 2.3rem; height: 2.3rem; padding: 0; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--accent-weak); font-size: 1.2rem;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; flex: none;
 }
-#nav button:hover { background: var(--surface-2); color: var(--text); }
-#nav button.active { background: var(--accent-weak); color: var(--accent); }
+.profile-btn:hover { filter: brightness(.98); }
 
-main#app { max-width: 860px; margin: 0 auto; padding: clamp(1rem, 3vw, 2rem) clamp(.8rem, 3vw, 2rem) 5rem; }
+main#app { max-width: 860px; margin: 0 auto; padding: clamp(1rem, 3vw, 1.5rem) clamp(.8rem, 3vw, 2rem) 5.5rem; }
+
+/* ---- 하단 탭바 (모바일) ---- */
+#tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: flex; background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+#tabbar button {
+  flex: 1; border: none; background: transparent; color: var(--muted); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: .5rem .2rem .55rem; font: inherit;
+}
+#tabbar .tb-ic { font-size: 1.4rem; line-height: 1; filter: grayscale(.4) opacity(.7); transition: filter .15s; }
+#tabbar .tb-lb { font-size: .7rem; font-weight: 700; }
+#tabbar button.active { color: var(--accent); }
+#tabbar button.active .tb-ic { filter: none; transform: scale(1.05); }
+
+/* ---- 마이페이지 헤더 ---- */
+.mypage-head { display: flex; align-items: center; gap: .9rem; margin-bottom: 1.1rem; }
+.mp-avatar {
+  width: 3.2rem; height: 3.2rem; border-radius: 50%; background: var(--accent-weak);
+  display: flex; align-items: center; justify-content: center; font-size: 1.9rem; flex: none;
+}
+.mp-info h1 { margin: 0; font-size: 1.4rem; }
 
 /* ---- 카드 ---- */
 .card {
@@ -293,8 +317,7 @@ button.block, .btn.block { width: 100%; display: block; }
 .progress-bar { height: 100%; background: var(--accent); border-radius: 999px; transition: width .3s; }
 
 @media (max-width: 560px) {
-  .brand { font-size: .95rem; }
-  #nav button { padding: .4rem .5rem; font-size: .85rem; }
+  .brand { font-size: 1rem; }
   h1 { font-size: 1.35rem; }
   .wc-label { display: none; }
   .reco-row { grid-template-columns: 1fr 1fr; }
