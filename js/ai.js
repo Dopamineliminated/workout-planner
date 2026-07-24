@@ -153,7 +153,6 @@ export async function refineRoutine({ apiKey, model, profile, goals, routine }) 
     thinking: { type: 'adaptive' },
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: buildUserMessage(profile, goals, routine) }],
-    output_config: { effort: 'high' },
   };
 
   const controller = new AbortController();
